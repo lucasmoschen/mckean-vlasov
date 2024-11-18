@@ -5,6 +5,7 @@ from scipy.optimize import fsolve
 from scipy.special import beta
 from scipy.fft import fft, ifft
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 import time
 import unittest
 from scipy.linalg import eigvals
@@ -63,7 +64,7 @@ class McKeanVlasovSolver:
         self.Pi = None
 
         # Cost matrix M
-        self.M = np.identity(self.N) if M is None else M
+        self.M = 10 * np.identity(self.N) if M is None else M
 
     def reconstruction(self, a, x):
         """
@@ -426,16 +427,151 @@ class TestNonLinearTerm(unittest.TestCase):
         np.testing.assert_array_almost_equal(result_original, result_improved, decimal=6,
                                              err_msg="The outputs of the original and improved functions do not match.")
 
+class McKeanVlasovPlotter:
+    def __init__(self, solver):
+        self.solver = solver
+
+    def plot_function_over_time(self, x, data, times, ylabel, title):
+        """General function for plotting various data over time using a colorblind-friendly palette."""
+        # Define a set of colorblind-friendly colors
+        colors = [
+            "#E69F00",  # Orange
+            "#56B4E9",  # Sky Blue
+            "#009E73",  # Bluish Green
+            "#F0E442",  # Yellow
+            "#0072B2",  # Blue
+            "#D55E00",  # Vermillion
+            "#CC79A7"   # Reddish Purple
+        ]
+
+        fig, ax = plt.subplots()
+        for i, time in enumerate(times):
+            # Cycle through colors if there are more times than colors
+            color = colors[i % len(colors)]
+            ax.plot(x, data[:, i], label=f't={time:.2f}', color=color)
+
+        ax.set_xlabel('$x$', fontsize=14)
+        ax.set_ylabel(ylabel, fontsize=14)
+        ax.legend()
+        ax.set_title(title)
+        plt.show()
+
+    def plot_mu_x_t(self, t_values):
+        x = np.linspace(0, self.solver.d, 1000)
+        solution = self.solver.nonlinear_uncontrolled_solver_mu(t_span=(0, max(t_values)), t_eval=t_values)
+        t_indices = [np.argmin(np.abs(solution.t - t)) for t in t_values]
+        data = np.array([self.solver.reconstruction(solution.y[:, i], x) for i in t_indices]).T
+        self.plot_function_over_time(x, data, solution.t[t_indices], '$\mu(x, t)$', 'Nonlinear Uncontrolled $\mu(x, t)$ for different times')
+
+    def plot_y_x_t(self, t_values):
+        x = np.linspace(0, self.solver.d, 1000)
+        solution = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, max(t_values)), t_eval=t_values)
+        t_indices = [np.argmin(np.abs(solution.t - t)) for t in t_values]
+        data = np.array([self.solver.reconstruction(solution.y[:, i], x) for i in t_indices]).T
+        self.plot_function_over_time(x, data, solution.t[t_indices], '$y(x, t)$', 'Nonlinear Uncontrolled $y(x, t)$ for different times')
+
+    def plot_mu_bar_x(self):
+        x = np.linspace(0, self.solver.d, 1000)
+        mu_bar = self.solver.reconstruction(self.solver.bar_mu_k, x)
+        mu0 = self.solver.reconstruction(self.solver.mu0_projected, x)
+        plt.figure()
+        plt.plot(x, mu_bar, label=r'$\bar{\mu}(x)$')
+        plt.plot(x, mu0, label=r'$\mu_0(x)$')
+        plt.xlabel('$x$', fontsize=14)
+        plt.title(r'Plot of $\bar{\mu}(x)$ and $\mu_0(x)$')
+        plt.legend()
+        plt.show()
+
+    def plot_control_and_norm(self, t_max):
+        # Generate the control function values
+        solution = self.solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
+        solution2 = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
+        t_points = solution.t
+        control = [-self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i] for i in range(len(t_points))]
+
+        # Calculate the L^2 norm of y(t)
+        y_norm = np.linalg.norm(solution.y, axis=0)
+        y_norm2 = np.linalg.norm(solution2.y, axis=0)
+
+        # Creating the subplot figure
+        _, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+        # Plotting ||y(., t)||_{L^2} over time
+        ax1.plot(t_points, y_norm, color="#0072B2", label="Controlled")
+        ax1.plot(t_points, y_norm2, color="red", label="Uncontrolled")
+        ax1.set_xlabel('Time $t$', fontsize=14)
+        ax1.set_ylabel('$||y(., t)||_{L^2}$', fontsize=14)
+        ax1.set_title('Norm of $y(t)$ over Time')
+        ax1.legend()
+
+        # Plotting the control function
+        ax2.plot(t_points, control, color="#D55E00")  # Vermillion color for visibility
+        ax2.set_xlabel('Time $t$', fontsize=14)
+        ax2.set_ylabel('Control $u(t)$', fontsize=14)
+        ax2.set_title('Control Function over Time')
+
+        # Display the plots
+        plt.tight_layout()
+        plt.show()
+
+    def plot_y_diff_L2_norm(self, t_max):
+
+        y_nonlinear = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, 30*t_max))
+        y_linear = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, 30*t_max))
+
+        # Calculate the L2 norm difference
+        diff = np.linalg.norm(y_nonlinear.y - y_linear.y, axis=0)
+        plt.figure()
+        plt.plot(y_linear.t, diff)
+        plt.xlabel('Time $t$', fontsize=14)
+        plt.ylabel('$||y(., t) - y_L(., t)||_{L^2}$', fontsize=14)
+        plt.title(f'L2 norm difference over time')
+        plt.show()
+
+    def animate_solution(self, t_values):
+        # Precompute the solution for the given time values
+        t_span = (0, max(t_values))
+        solution = self.solver.solve_control_problem(t_span=t_span, t_eval=t_values)
+        x = np.linspace(0, self.solver.d, 1000)
+        y_reconstructed = [self.solver.reconstruction(solution.y[:, i], x) for i in range(len(solution.t))]
+        
+        # Calculate overall min and max from reconstructed values
+        min_y = min([np.min(y) for y in y_reconstructed])
+        max_y = max([np.max(y) for y in y_reconstructed])
+
+        fig, ax = plt.subplots()
+        line, = ax.plot([], [], lw=2)
+        time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
+        ax.set_title("Dynamics of y over Time")
+
+        def init():
+            line.set_data([], [])
+            time_text.set_text('')
+            ax.set_xlim(0, self.solver.d)
+            ax.set_ylim(min_y, max_y)
+            return line, time_text
+
+        def update(frame):
+            y = y_reconstructed[frame]
+            line.set_data(x, y)
+            time_text.set_text(f'Time = {t_values[frame]:.2f}s')
+            return line, time_text
+
+        ani = FuncAnimation(fig, update, frames=len(t_values), init_func=init, blit=True, interval=200)
+        plt.show()
+
 if __name__ == '__main__':
 
+   #unittest.main()
+
     def G(x):
-        return (x - np.pi)**2
+        return np.zeros_like(x)
 
     def alpha(x):
-        return np.ones_like(x)
+        return np.sin(x)
 
     def W(x):
-        return (x - np.pi)**2
+        return (x - np.pi)**3
 
     def mu_0(x):
         alpha_param = 2.0
@@ -443,37 +579,8 @@ if __name__ == '__main__':
         Z = (2 * np.pi)**(alpha_param + beta_param - 1) * beta(alpha_param, beta_param)
         return (x**(alpha_param - 1) * (2 * np.pi - x)**(beta_param - 1)) / Z
     
-    #unittest.main()
+    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0, min_fourier_samples=2000, delta=-0.01)
+    plotter = McKeanVlasovPlotter(solver)
 
-    # Initialize the solver
-    solver = McKeanVlasovSolver(L=30, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0, min_fourier_samples=2000, delta=0.0)
-    
-    t_span = (0, 10)
-    t_eval = np.linspace(0, 10, 500)
-    x = np.linspace(0, 2*np.pi, num=1000)
+    plotter.plot_control_and_norm(t_max=2)
 
-    solution = solver.solve_control_problem(t_span, t_eval)
-    control = [-solver.B.conj().T @ solver.Pi @ solution.y[:, i] for i in range(len(solution.t))]
-
-    #solution1 = solver.linearized_uncontrolled_solver(t_span, t_eval)
-    #solution2 = solver.nonlinear_uncontrolled_solver_y(t_span, t_eval)
-
-    #time_points = solution1.t
-    #coefficients1 = solution1.y
-    #coefficients2 = solution2.y
-
-    #vect = [np.sum(abs(solver.reconstruction(coefficients1[:,i], x) - solver.reconstruction(coefficients2[:,i], x))) for i in range(len(time_points))]
-    
-    #plt.plot(time_points, vect, label="Initial")
-    #plt.show()
-    #plt.plot(x, , label="Final")
-
-    #time_points = solution.t
-    #coefficients = solution.y
-    #vect = solver.reconstruction(coefficients[:,-1], x)
-
-    #plt.plot(x, vect)
-    #plt.show()
-    #plt.plot(time_points, control)
-    #plt.legend()
-    #plt.show()
