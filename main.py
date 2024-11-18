@@ -35,6 +35,7 @@ class McKeanVlasovSolver:
         self.mu_0 = mu_0
         self.sigma = sigma
         self.delta = delta
+        self.grad_alpha = grad_alpha
 
         # Define the Fourier basis functions
         self.k_vals = np.arange(-L, L + 1)
@@ -53,6 +54,7 @@ class McKeanVlasovSolver:
         try:
             self.compute_bar_mu()
         except:
+            print("Method 1 didn't work.")
             self.bar_mu_k = self.compute_bar_mu_method2()
         self._compute_K_matrix()
         # Project y0 onto the Fourier basis
@@ -533,29 +535,43 @@ class McKeanVlasovPlotter:
         t_span = (0, max(t_values))
         solution = self.solver.solve_control_problem(t_span=t_span, t_eval=t_values)
         x = np.linspace(0, self.solver.d, 1000)
+        alpha_x = self.solver.grad_alpha(x)  # Evaluate alpha over x
         y_reconstructed = [self.solver.reconstruction(solution.y[:, i], x) for i in range(len(solution.t))]
         
-        # Calculate overall min and max from reconstructed values
+        # Calculate overall min and max from reconstructed values and the alpha*control product
         min_y = min([np.min(y) for y in y_reconstructed])
         max_y = max([np.max(y) for y in y_reconstructed])
+        
+        # Compute control values
+        controls = [-self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i] for i in range(len(solution.t))]
+        alpha_control = [alpha_x * control for control in controls]
+        
+        # Adjust the y-limits to include alpha*control plots
+        min_y = min(min_y, min(np.min(ac) for ac in alpha_control))
+        max_y = max(max_y, max(np.max(ac) for ac in alpha_control))
 
         fig, ax = plt.subplots()
-        line, = ax.plot([], [], lw=2)
+        line, = ax.plot([], [], lw=2, label='y(x, t)')
+        line_alpha_control, = ax.plot([], [], lw=2, label=r'$\nabla \alpha(x) \cdot u(t)$', linestyle='--', color='red')
         time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
         ax.set_title("Dynamics of y over Time")
+        ax.legend()
 
         def init():
             line.set_data([], [])
+            line_alpha_control.set_data([], [])
             time_text.set_text('')
             ax.set_xlim(0, self.solver.d)
             ax.set_ylim(min_y, max_y)
-            return line, time_text
+            return line, line_alpha_control, time_text
 
         def update(frame):
             y = y_reconstructed[frame]
             line.set_data(x, y)
+            ac = alpha_control[frame]
+            line_alpha_control.set_data(x, ac)
             time_text.set_text(f'Time = {t_values[frame]:.2f}s')
-            return line, time_text
+            return line, line_alpha_control, time_text
 
         ani = FuncAnimation(fig, update, frames=len(t_values), init_func=init, blit=True, interval=200)
         plt.show()
@@ -565,13 +581,16 @@ if __name__ == '__main__':
    #unittest.main()
 
     def G(x):
-        return np.zeros_like(x)
+        return (x - np.pi)**2
 
     def alpha(x):
-        return np.sin(x)
+        return np.sin(x) + np.cos(x)
+    
+    def nabla_alpha(x):
+        return np.cos(x) - np.sin(x)
 
     def W(x):
-        return (x - np.pi)**3
+        return abs(x - np.pi)**0.1
 
     def mu_0(x):
         alpha_param = 2.0
@@ -579,8 +598,22 @@ if __name__ == '__main__':
         Z = (2 * np.pi)**(alpha_param + beta_param - 1) * beta(alpha_param, beta_param)
         return (x**(alpha_param - 1) * (2 * np.pi - x)**(beta_param - 1)) / Z
     
-    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0, min_fourier_samples=2000, delta=-0.01)
+    def mu_0_mixed(x):
+        alpha_param1 = 4.0
+        beta_param1 = 2.0
+        Z1 = (2 * np.pi)**(alpha_param1 + beta_param1 - 1) * beta(alpha_param1, beta_param1)
+
+        alpha_param2 = 2.0
+        beta_param2 = 10.0
+        Z2 = (2 * np.pi)**(alpha_param2 + beta_param2 - 1) * beta(alpha_param2, beta_param2)
+        return 0.5*(x**(alpha_param1 - 1) * (2 * np.pi - x)**(beta_param1 - 1)) / Z1 + 0.5*(x**(alpha_param2 - 1) * (2 * np.pi - x)**(beta_param2 - 1)) / Z2
+    
+    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.01, grad_alpha=nabla_alpha)
     plotter = McKeanVlasovPlotter(solver)
 
-    plotter.plot_control_and_norm(t_max=2)
+    plotter.plot_mu_bar_x()
+
+    #plotter.plot_control_and_norm(t_max=2)
+
+    plotter.animate_solution(t_values=np.linspace(0,2,50))
 
