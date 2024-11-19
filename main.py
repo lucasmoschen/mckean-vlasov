@@ -10,6 +10,10 @@ import time
 import unittest
 from scipy.linalg import eigvals
 
+import cProfile
+import pstats
+import io
+
 class McKeanVlasovSolver:
 
     def __init__(self, L, d, G, alpha, W, mu_0, sigma=1.0, delta=0.0, M=None, grad_alpha=None, min_fourier_samples=200):
@@ -61,7 +65,12 @@ class McKeanVlasovSolver:
         self.a0 = self.bar_mu_k - self.mu0_projected
 
         # Control-related matrices
-        self._compute_Psi_matrix(min_fourier_samples)
+        if self.grad_alpha == "constant":
+            self.Psi = np.diag(2*np.pi/self.d * 1j * self.k_vals)
+            self.grad_alpha = lambda x: np.ones_like(x)
+            self.alpha = lambda x: x - self.d/2
+        else:
+            self._compute_Psi_matrix(min_fourier_samples)
         self.b = self.Psi @ self.bar_mu_k
         self.Pi = None
 
@@ -72,7 +81,7 @@ class McKeanVlasovSolver:
         """
         Reconstruct a function from coefficients a and points x.
         """
-        return np.sum([a[k]*self.phi_funcs[k](x) for k in range(self.N)], axis=0)
+        return np.real(np.sum([a[k]*self.phi_funcs[k](x) for k in range(self.N)], axis=0))
 
     def _phi_k(self, k):
         """Return the k-th Fourier basis function, scaled to be orthonormal over [0, d]."""
@@ -231,18 +240,30 @@ class McKeanVlasovSolver:
             non_linear_term[k_idx] *= 4*np.pi**2*(k_idx-self.L) / self.d**2
         return non_linear_term
 
-    def _compute_non_linear_term(self, a):
+    def _compute_non_linear_term_old_v2(self, a):
         """
         Computes sum_j sum_k a_j a_k T_ijk using the structure of T.
         """
-        non_linear_term = np.zeros(self.N, dtype=np.complex128)
-        for k_idx in range(self.N):
-            l_idx_array = np.arange(max(0, k_idx - self.L), min(self.N, k_idx + self.L + 1))
-            shift = k_idx - l_idx_array + self.L
+        N = self.N
+        L = self.L
+        non_linear_term = np.zeros(N, dtype=np.complex128)
+        for k_idx in range(N):
+            l_idx_array = np.arange(max(0, k_idx - L), min(N, k_idx + L + 1))
+            shift = k_idx - l_idx_array + L
             l_idx = l_idx_array
             terms = a[l_idx] * a[shift] * (k_idx - l_idx) * self.w[shift]
             non_linear_term[k_idx] = np.sum(terms)
-        non_linear_term *= (np.arange(self.N) - self.L) * 4 * np.pi**2 / self.d**2
+        non_linear_term *= self.k_vals * 4 * np.pi**2 / self.d**2
+        return non_linear_term
+
+    def _compute_non_linear_term(self, a):
+        """
+        Vectorized computation of the non-linear term:
+        T_k(a,a) = (4π²/d²) * k * sum_{m=-L}^L a[k - m] * a[m] * m * w[m]
+        """
+        c = a * self.w * self.k_vals
+        T_sum = np.correlate(a, np.conjugate(c[::-1]), mode='same')
+        non_linear_term = (4 * np.pi**2) / (self.d**2) * self.k_vals * T_sum
         return non_linear_term
 
     def _compute_K_matrix(self, bar_mu_k=None):
@@ -325,9 +346,13 @@ class McKeanVlasovSolver:
 
     def solve_control_problem(self, t_span, t_eval=None):
         """Solve the non-linear and controlled McKean-Vlasov equation."""
+        t0 = time.time()
         if self.Pi == None:
             self.solve_riccati()
+            t1 = time.time()
+            print("MESSAGE - Ricatti equation solved in {:.2f}.".format(t1 - t0))
         sol = self.nonlinear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -self.B.conj().T @ self.Pi @ a)
+        print("MESSAGE - Nonlinear equation solved in {:.2f}.".format(time.time() - t0))
         return sol
 
     def check_are_conditions(self, A, B, Q, R):
@@ -398,16 +423,17 @@ class TestNonLinearTerm(unittest.TestCase):
             return (x**(alpha_param - 1) * (2 * np.pi - x)**(beta_param - 1)) / Z
 
         self.model = McKeanVlasovSolver(L=30, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0, min_fourier_samples=2000)
+        self.a = np.random.random(self.model.N) + 1j * np.random.random(self.model.N)
 
     def test_performance_comparison(self):
         # Measure performance of the original function
         start_time_original = time.time()
-        result_original = self.model.compute_bar_mu_method2()
+        result_original = self.model._compute_non_linear_term(self.a)
         time_original = time.time() - start_time_original
 
         # Measure performance of the improved function
         start_time_improved = time.time()
-        result_improved = self.model.compute_bar_mu_method3()
+        result_improved = self.model._compute_non_linear_term_v2(self.a)
         time_improved = time.time() - start_time_improved
 
         # Output the times for comparison
@@ -422,8 +448,8 @@ class TestNonLinearTerm(unittest.TestCase):
 
     def test_method_agreement(self):
         # Compute results from both functions
-        result_original = self.model.compute_bar_mu_method2()
-        result_improved = self.model.compute_bar_mu_method3()
+        result_original = self.model._compute_non_linear_term(self.a)
+        result_improved = self.model._compute_non_linear_term_v2(self.a)
 
         # Use assertArrayAlmostEqual from numpy.testing to compare arrays
         np.testing.assert_array_almost_equal(result_original, result_improved, decimal=6,
@@ -576,9 +602,14 @@ class McKeanVlasovPlotter:
         ani = FuncAnimation(fig, update, frames=len(t_values), init_func=init, blit=True, interval=200)
         plt.show()
 
+def profile_solver(solver):
+    # Replace these with your actual parameters
+    t_max = 10
+    solution = solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
+
 if __name__ == '__main__':
 
-   #unittest.main()
+    #unittest.main()
 
     def G(x):
         return (x - np.pi)**2
@@ -608,12 +639,27 @@ if __name__ == '__main__':
         Z2 = (2 * np.pi)**(alpha_param2 + beta_param2 - 1) * beta(alpha_param2, beta_param2)
         return 0.5*(x**(alpha_param1 - 1) * (2 * np.pi - x)**(beta_param1 - 1)) / Z1 + 0.5*(x**(alpha_param2 - 1) * (2 * np.pi - x)**(beta_param2 - 1)) / Z2
     
-    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.01, grad_alpha=nabla_alpha)
+    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.01, grad_alpha="constant")
     plotter = McKeanVlasovPlotter(solver)
 
     plotter.plot_mu_bar_x()
 
-    #plotter.plot_control_and_norm(t_max=2)
+    plotter.plot_control_and_norm(t_max=2)
 
     plotter.animate_solution(t_values=np.linspace(0,2,50))
+
+    if False:
+        profiler = cProfile.Profile()
+        profiler.enable()
+
+        profile_solver(solver)
+
+        profiler.disable()
+
+        s = io.StringIO()
+        sort_by = 'cumulative'  # Sort by cumulative time spent in the function
+        ps = pstats.Stats(profiler, stream=s).sort_stats(sort_by)
+        ps.print_stats()
+
+        print(s.getvalue())
 
