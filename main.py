@@ -280,50 +280,81 @@ class McKeanVlasovSolver:
             self.K[k_idx, l_idx] *= (l_idx - self.L) * self.w[l_idx] + (k_idx - l_idx) * self.w[k_idx-l_idx+self.L]
         return self.K
     
+    def _conjugate_wrapper(self, a, c=0.0):
+        return np.hstack([a[:self.L][::-1] - 1j * a[self.L:][::-1], c, a[:self.L] + 1j * a[self.L:]])
+
+    def _conjugate_wrapper_matrix(self, a, c=0.0):
+        output = np.empty((2 * self.L + 1, a.shape[1]), dtype=np.complex128)
+        output[:self.L, :] = a[:self.L, :][::-1] - 1j * a[self.L:, :][::-1]
+        output[self.L, :] = c
+        output[self.L+1:, :] = a[:self.L, :] + 1j * a[self.L:, :]
+        return output
+
+    def _real_wrapper(self, a):
+        return np.hstack([a[self.L+1:].real, a[self.L+1:].imag])
+
     def linearized_uncontrolled_solver(self, t_span, t_eval=None):
         """Solve the linearized and uncontrolled McKean-Vlasov equation."""
         def ode_system(t, a):
-            return -(self.L_G + self.sigma * self.D + self.K) @ a
-        sol = solve_ivp(ode_system, t_span, self.a0, t_eval=t_eval)
+            a = self._conjugate_wrapper(a)
+            derivative = -(self.L_G + self.sigma * self.D + self.K) @ a
+            return self._real_wrapper(derivative)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval)
+        sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
     
     def nonlinear_uncontrolled_solver_y(self, t_span, t_eval=None):
         """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
         def ode_system(t, a):
+            a = self._conjugate_wrapper(a)
             nonlinear_term = self._compute_non_linear_term(a)
-            return -(self.L_G + self.sigma * self.D + self.K) @ a - nonlinear_term
-        sol = solve_ivp(ode_system, t_span, self.a0, t_eval=t_eval)
+            derivative = -(self.L_G + self.sigma * self.D + self.K) @ a - nonlinear_term
+            return self._real_wrapper(derivative)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval)
+        sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
 
     def nonlinear_uncontrolled_solver_mu(self, t_span, t_eval=None):
         """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
         def ode_system(t, a):
+            a = self._conjugate_wrapper(a, c=1/np.sqrt(self.d))
             nonlinear_term = self._compute_non_linear_term(a)
-            return -(self.L_G + self.sigma * self.D) @ a - nonlinear_term
-        sol = solve_ivp(ode_system, t_span, self.mu0_projected, t_eval=t_eval)
+            derivative = -(self.L_G + self.sigma * self.D) @ a - nonlinear_term
+            return self._real_wrapper(derivative)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.mu0_projected), t_eval=t_eval)
+        sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
     def nonlinear_controlled_solver_mu(self, t_span, t_eval=None, u=lambda t: np.zeros_like(t)):
         """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
         def ode_system(t, a, u):
+            a = self._conjugate_wrapper(a, c=1/np.sqrt(self.d))
             nonlinear_term = self._compute_non_linear_term(a)
-            return -(self.L_G + self.sigma * self.D - u(t) * self.Psi) @ a - nonlinear_term
-        sol = solve_ivp(ode_system, t_span, self.mu0_projected, t_eval=t_eval, args=(u,))
+            derivative = -(self.L_G + self.sigma * self.D - u(t) * self.Psi) @ a - nonlinear_term
+            return self._real_wrapper(derivative)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.mu0_projected), t_eval=t_eval, args=(u,))
+        sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
     def nonlinear_controlled_solver_y(self, t_span, t_eval=None, u=lambda t,a: np.zeros_like(t)):
         """Solve the non-linear and controlled McKean-Vlasov equation for y."""
         def ode_system(t, a, u):
+            a = self._conjugate_wrapper(a)
             nonlinear_term = self._compute_non_linear_term(a)
-            return -(self.L_G + self.sigma * self.D + self.K + u(t,a) * self.Psi) @ a - nonlinear_term - u(t,a) * self.b
-        sol = solve_ivp(ode_system, t_span, self.a0, t_eval=t_eval, args=(u,))
+            derivative = -(self.L_G + self.sigma * self.D + self.K + u(t,a) * self.Psi) @ a - nonlinear_term - u(t,a) * self.b
+            return self._real_wrapper(derivative)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, args=(u,))
+        sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
 
     def linear_controlled_solver_y(self, t_span, t_eval=None, u=lambda t,a: np.zeros_like(t)):
         """Solve the linear and controlled McKean-Vlasov equation for y."""
         def ode_system(t, a, u):
-            return -(self.L_G + self.sigma * self.D + self.K) @ a - u(t,a) * self.b + self.delta * a
-        sol = solve_ivp(ode_system, t_span, self.a0, t_eval=t_eval, args=(u,))
+            a = self._conjugate_wrapper(a)
+            derivative = -(self.L_G + self.sigma * self.D + self.K) @ a - u(t,a) * self.b + self.delta * a
+            return self._real_wrapper(derivative)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, args=(u,))
+        sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
 
     def solve_riccati(self):
@@ -339,7 +370,7 @@ class McKeanVlasovSolver:
 
     def solve_control_linearized_problem(self, t_span, t_eval=None):
         """Solve the linearized and controlled McKean-Vlasov equation."""
-        if self.Pi is None:
+        if self.Pi == None:
             self.solve_riccati()
         sol = self.linear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -self.B.conj().T @ self.Pi @ a)
         return sol
@@ -639,10 +670,10 @@ if __name__ == '__main__':
         Z2 = (2 * np.pi)**(alpha_param2 + beta_param2 - 1) * beta(alpha_param2, beta_param2)
         return 0.5*(x**(alpha_param1 - 1) * (2 * np.pi - x)**(beta_param1 - 1)) / Z1 + 0.5*(x**(alpha_param2 - 1) * (2 * np.pi - x)**(beta_param2 - 1)) / Z2
     
-    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.01, grad_alpha="constant")
+    solver = McKeanVlasovSolver(L=20, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.01)
     plotter = McKeanVlasovPlotter(solver)
 
-    plotter.plot_mu_bar_x()
+    #plotter.plot_mu_bar_x()
 
     plotter.plot_control_and_norm(t_max=2)
 
@@ -662,4 +693,3 @@ if __name__ == '__main__':
         ps.print_stats()
 
         print(s.getvalue())
-

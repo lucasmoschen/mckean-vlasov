@@ -281,11 +281,11 @@ class McKeanVlasovSolver:
         return self.K
     
     def _conjugate_wrapper(self, a, c=0.0):
-        return np.hstack([a[:self.L] - 1j * a[self.L:], c, a[:self.L] + 1j * a[self.L:]])
+        return np.hstack([a[:self.L][::-1] - 1j * a[self.L:][::-1], c, a[:self.L] + 1j * a[self.L:]])
 
     def _conjugate_wrapper_matrix(self, a, c=0.0):
         output = np.empty((2 * self.L + 1, a.shape[1]), dtype=np.complex128)
-        output[:self.L, :] = a[:self.L, :] - 1j * a[self.L:, :]
+        output[:self.L, :] = a[:self.L, :][::-1] - 1j * a[self.L:, :][::-1]
         output[self.L, :] = c
         output[self.L+1:, :] = a[:self.L, :] + 1j * a[self.L:, :]
         return output
@@ -670,19 +670,10 @@ if __name__ == '__main__':
         Z2 = (2 * np.pi)**(alpha_param2 + beta_param2 - 1) * beta(alpha_param2, beta_param2)
         return 0.5*(x**(alpha_param1 - 1) * (2 * np.pi - x)**(beta_param1 - 1)) / Z1 + 0.5*(x**(alpha_param2 - 1) * (2 * np.pi - x)**(beta_param2 - 1)) / Z2
     
-    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.01)
-
-    t_max = 2
-    solution = solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
-    t_points = solution.t
-    control = [-solver.B.conj().T @ solver.Pi @ solution.y[:, i] for i in range(len(t_points))]
-
-    plt.plot(t_points, control)
-    plt.show()
-
+    solver = McKeanVlasovSolver(L=20, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.01)
     plotter = McKeanVlasovPlotter(solver)
 
-    plotter.plot_mu_bar_x()
+    #plotter.plot_mu_bar_x()
 
     plotter.plot_control_and_norm(t_max=2)
 
