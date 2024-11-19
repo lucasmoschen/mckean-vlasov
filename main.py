@@ -6,6 +6,7 @@ from scipy.special import beta
 from scipy.fft import fft, ifft
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+import seaborn as sns
 import time
 import unittest
 from scipy.linalg import eigvals
@@ -16,7 +17,7 @@ import io
 
 class McKeanVlasovSolver:
 
-    def __init__(self, L, d, G, alpha, W, mu_0, sigma=1.0, delta=0.0, M=None, grad_alpha=None, min_fourier_samples=200):
+    def __init__(self, L, d, G, alpha, W, mu_0, sigma=1.0, delta=0.0, M=None, grad_alpha=None, min_fourier_samples=200, state_weight=1000):
         """
         Initialize the McKean-Vlasov solver.
 
@@ -75,7 +76,7 @@ class McKeanVlasovSolver:
         self.Pi = None
 
         # Cost matrix M
-        self.M = 10 * np.identity(self.N) if M is None else M
+        self.M = state_weight * np.identity(self.N) if M is None else M
 
     def reconstruction(self, a, x):
         """
@@ -543,10 +544,10 @@ class McKeanVlasovPlotter:
 
     def plot_control_and_norm(self, t_max):
         # Generate the control function values
-        solution = self.solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
-        solution2 = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
+        solution = self.solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
+        solution2 = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
         t_points = solution.t
-        control = [-self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i] for i in range(len(t_points))]
+        control = np.real([-self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i] for i in range(len(t_points))])
 
         # Calculate the L^2 norm of y(t)
         y_norm = np.linalg.norm(solution.y, axis=0)
@@ -575,8 +576,8 @@ class McKeanVlasovPlotter:
 
     def plot_y_diff_L2_norm(self, t_max):
 
-        y_nonlinear = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, 30*t_max))
-        y_linear = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, 30*t_max))
+        y_nonlinear = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
+        y_linear = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
 
         # Calculate the L2 norm difference
         diff = np.linalg.norm(y_nonlinear.y - y_linear.y, axis=0)
@@ -585,6 +586,25 @@ class McKeanVlasovPlotter:
         plt.xlabel('Time $t$', fontsize=14)
         plt.ylabel('$||y(., t) - y_L(., t)||_{L^2}$', fontsize=14)
         plt.title(f'L2 norm difference over time')
+        plt.show()
+
+    def plot_pi_matrix(self, cmap='viridis'):
+
+        pi_abs = np.minimum(np.abs(self.solver.Pi), 1)
+
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(pi_abs, fmt=".2f", cmap=cmap)
+        
+        plt.title('Absolute Values of Pi Matrix')
+        plt.tight_layout()
+        plt.show()
+
+        pi_abs = np.minimum(np.abs(self.solver.Pi @ self.solver.B), 10)
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(pi_abs, fmt=".2f", cmap=cmap)
+        
+        plt.title('Absolute Values of B^* Pi Matrix')
+        plt.tight_layout()
         plt.show()
 
     def animate_solution(self, t_values):
@@ -636,14 +656,14 @@ class McKeanVlasovPlotter:
 def profile_solver(solver):
     # Replace these with your actual parameters
     t_max = 10
-    solution = solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
+    solution = solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
 
 if __name__ == '__main__':
 
     #unittest.main()
 
     def G(x):
-        return (x - np.pi)**2
+        return (x - np.pi)**4 - 2 * (x - np.pi)**2 + 1
 
     def alpha(x):
         return np.sin(x) + np.cos(x)
@@ -652,7 +672,7 @@ if __name__ == '__main__':
         return np.cos(x) - np.sin(x)
 
     def W(x):
-        return abs(x - np.pi)**0.1
+        return abs(x - np.pi)
 
     def mu_0(x):
         alpha_param = 2.0
@@ -670,14 +690,19 @@ if __name__ == '__main__':
         Z2 = (2 * np.pi)**(alpha_param2 + beta_param2 - 1) * beta(alpha_param2, beta_param2)
         return 0.5*(x**(alpha_param1 - 1) * (2 * np.pi - x)**(beta_param1 - 1)) / Z1 + 0.5*(x**(alpha_param2 - 1) * (2 * np.pi - x)**(beta_param2 - 1)) / Z2
     
-    solver = McKeanVlasovSolver(L=20, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.01)
+    solver = McKeanVlasovSolver(L=30, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0, min_fourier_samples=2000, delta=-0.0001, 
+                                grad_alpha="constant", state_weight=100)
     plotter = McKeanVlasovPlotter(solver)
 
-    #plotter.plot_mu_bar_x()
+    plotter.plot_mu_bar_x()
 
-    plotter.plot_control_and_norm(t_max=2)
+    plotter.plot_control_and_norm(t_max=0.5)
 
-    #plotter.animate_solution(t_values=np.linspace(0,2,50))
+    plotter.plot_pi_matrix()
+
+    plotter.plot_y_diff_L2_norm(t_max=0.5)
+
+    plotter.animate_solution(t_values=np.linspace(0, 0.5, 50))
 
     if False:
         profiler = cProfile.Profile()
