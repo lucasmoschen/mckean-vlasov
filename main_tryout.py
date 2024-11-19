@@ -5,9 +5,14 @@ from scipy.optimize import fsolve
 from scipy.special import beta
 from scipy.fft import fft, ifft
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 import time
 import unittest
 from scipy.linalg import eigvals
+
+import cProfile
+import pstats
+import io
 
 class McKeanVlasovSolver:
 
@@ -34,6 +39,7 @@ class McKeanVlasovSolver:
         self.mu_0 = mu_0
         self.sigma = sigma
         self.delta = delta
+        self.grad_alpha = grad_alpha
 
         # Define the Fourier basis functions
         self.k_vals = np.arange(-L, L + 1)
@@ -52,24 +58,30 @@ class McKeanVlasovSolver:
         try:
             self.compute_bar_mu()
         except:
+            print("Method 1 didn't work.")
             self.bar_mu_k = self.compute_bar_mu_method2()
         self._compute_K_matrix()
         # Project y0 onto the Fourier basis
         self.a0 = self.bar_mu_k - self.mu0_projected
 
         # Control-related matrices
-        self._compute_Psi_matrix(min_fourier_samples)
+        if self.grad_alpha == "constant":
+            self.Psi = np.diag(2*np.pi/self.d * 1j * self.k_vals)
+            self.grad_alpha = lambda x: np.ones_like(x)
+            self.alpha = lambda x: x - self.d/2
+        else:
+            self._compute_Psi_matrix(min_fourier_samples)
         self.b = self.Psi @ self.bar_mu_k
         self.Pi = None
 
         # Cost matrix M
-        self.M = np.identity(self.N) if M is None else M
+        self.M = 10 * np.identity(self.N) if M is None else M
 
     def reconstruction(self, a, x):
         """
         Reconstruct a function from coefficients a and points x.
         """
-        return np.sum([a[k]*self.phi_funcs[k](x) for k in range(self.N)], axis=0)
+        return np.real(np.sum([a[k]*self.phi_funcs[k](x) for k in range(self.N)], axis=0))
 
     def _phi_k(self, k):
         """Return the k-th Fourier basis function, scaled to be orthonormal over [0, d]."""
@@ -228,18 +240,30 @@ class McKeanVlasovSolver:
             non_linear_term[k_idx] *= 4*np.pi**2*(k_idx-self.L) / self.d**2
         return non_linear_term
 
-    def _compute_non_linear_term(self, a):
+    def _compute_non_linear_term_old_v2(self, a):
         """
         Computes sum_j sum_k a_j a_k T_ijk using the structure of T.
         """
-        non_linear_term = np.zeros(self.N, dtype=np.complex128)
-        for k_idx in range(self.N):
-            l_idx_array = np.arange(max(0, k_idx - self.L), min(self.N, k_idx + self.L + 1))
-            shift = k_idx - l_idx_array + self.L
+        N = self.N
+        L = self.L
+        non_linear_term = np.zeros(N, dtype=np.complex128)
+        for k_idx in range(N):
+            l_idx_array = np.arange(max(0, k_idx - L), min(N, k_idx + L + 1))
+            shift = k_idx - l_idx_array + L
             l_idx = l_idx_array
             terms = a[l_idx] * a[shift] * (k_idx - l_idx) * self.w[shift]
             non_linear_term[k_idx] = np.sum(terms)
-        non_linear_term *= (np.arange(self.N) - self.L) * 4 * np.pi**2 / self.d**2
+        non_linear_term *= self.k_vals * 4 * np.pi**2 / self.d**2
+        return non_linear_term
+
+    def _compute_non_linear_term(self, a):
+        """
+        Vectorized computation of the non-linear term:
+        T_k(a,a) = (4π²/d²) * k * sum_{m=-L}^L a[k - m] * a[m] * m * w[m]
+        """
+        c = a * self.w * self.k_vals
+        T_sum = np.correlate(a, np.conjugate(c[::-1]), mode='same')
+        non_linear_term = (4 * np.pi**2) / (self.d**2) * self.k_vals * T_sum
         return non_linear_term
 
     def _compute_K_matrix(self, bar_mu_k=None):
@@ -256,50 +280,81 @@ class McKeanVlasovSolver:
             self.K[k_idx, l_idx] *= (l_idx - self.L) * self.w[l_idx] + (k_idx - l_idx) * self.w[k_idx-l_idx+self.L]
         return self.K
     
+    def _conjugate_wrapper(self, a, c=0.0):
+        return np.hstack([a[:self.L] - 1j * a[self.L:], c, a[:self.L] + 1j * a[self.L:]])
+
+    def _conjugate_wrapper_matrix(self, a, c=0.0):
+        output = np.empty((2 * self.L + 1, a.shape[1]), dtype=np.complex128)
+        output[:self.L, :] = a[:self.L, :] - 1j * a[self.L:, :]
+        output[self.L, :] = c
+        output[self.L+1:, :] = a[:self.L, :] + 1j * a[self.L:, :]
+        return output
+
+    def _real_wrapper(self, a):
+        return np.hstack([a[self.L+1:].real, a[self.L+1:].imag])
+
     def linearized_uncontrolled_solver(self, t_span, t_eval=None):
         """Solve the linearized and uncontrolled McKean-Vlasov equation."""
         def ode_system(t, a):
-            return -(self.L_G + self.sigma * self.D + self.K) @ a
-        sol = solve_ivp(ode_system, t_span, self.a0, t_eval=t_eval)
+            a = self._conjugate_wrapper(a)
+            derivative = -(self.L_G + self.sigma * self.D + self.K) @ a
+            return self._real_wrapper(derivative)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval)
+        sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
     
     def nonlinear_uncontrolled_solver_y(self, t_span, t_eval=None):
         """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
         def ode_system(t, a):
+            a = self._conjugate_wrapper(a)
             nonlinear_term = self._compute_non_linear_term(a)
-            return -(self.L_G + self.sigma * self.D + self.K) @ a - nonlinear_term
-        sol = solve_ivp(ode_system, t_span, self.a0, t_eval=t_eval)
+            derivative = -(self.L_G + self.sigma * self.D + self.K) @ a - nonlinear_term
+            return self._real_wrapper(derivative)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval)
+        sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
 
     def nonlinear_uncontrolled_solver_mu(self, t_span, t_eval=None):
         """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
         def ode_system(t, a):
+            a = self._conjugate_wrapper(a, c=1/np.sqrt(self.d))
             nonlinear_term = self._compute_non_linear_term(a)
-            return -(self.L_G + self.sigma * self.D) @ a - nonlinear_term
-        sol = solve_ivp(ode_system, t_span, self.mu0_projected, t_eval=t_eval)
+            derivative = -(self.L_G + self.sigma * self.D) @ a - nonlinear_term
+            return self._real_wrapper(derivative)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.mu0_projected), t_eval=t_eval)
+        sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
     def nonlinear_controlled_solver_mu(self, t_span, t_eval=None, u=lambda t: np.zeros_like(t)):
         """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
         def ode_system(t, a, u):
+            a = self._conjugate_wrapper(a, c=1/np.sqrt(self.d))
             nonlinear_term = self._compute_non_linear_term(a)
-            return -(self.L_G + self.sigma * self.D - u(t) * self.Psi) @ a - nonlinear_term
-        sol = solve_ivp(ode_system, t_span, self.mu0_projected, t_eval=t_eval, args=(u,))
+            derivative = -(self.L_G + self.sigma * self.D - u(t) * self.Psi) @ a - nonlinear_term
+            return self._real_wrapper(derivative)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.mu0_projected), t_eval=t_eval, args=(u,))
+        sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
     def nonlinear_controlled_solver_y(self, t_span, t_eval=None, u=lambda t,a: np.zeros_like(t)):
         """Solve the non-linear and controlled McKean-Vlasov equation for y."""
         def ode_system(t, a, u):
+            a = self._conjugate_wrapper(a)
             nonlinear_term = self._compute_non_linear_term(a)
-            return -(self.L_G + self.sigma * self.D + self.K + u(t,a) * self.Psi) @ a - nonlinear_term - u(t,a) * self.b
-        sol = solve_ivp(ode_system, t_span, self.a0, t_eval=t_eval, args=(u,))
+            derivative = -(self.L_G + self.sigma * self.D + self.K + u(t,a) * self.Psi) @ a - nonlinear_term - u(t,a) * self.b
+            return self._real_wrapper(derivative)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, args=(u,))
+        sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
 
     def linear_controlled_solver_y(self, t_span, t_eval=None, u=lambda t,a: np.zeros_like(t)):
         """Solve the linear and controlled McKean-Vlasov equation for y."""
         def ode_system(t, a, u):
-            return -(self.L_G + self.sigma * self.D + self.K) @ a - u(t,a) * self.b + self.delta * a
-        sol = solve_ivp(ode_system, t_span, self.a0, t_eval=t_eval, args=(u,))
+            a = self._conjugate_wrapper(a)
+            derivative = -(self.L_G + self.sigma * self.D + self.K) @ a - u(t,a) * self.b + self.delta * a
+            return self._real_wrapper(derivative)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, args=(u,))
+        sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
 
     def solve_riccati(self):
@@ -322,9 +377,13 @@ class McKeanVlasovSolver:
 
     def solve_control_problem(self, t_span, t_eval=None):
         """Solve the non-linear and controlled McKean-Vlasov equation."""
+        t0 = time.time()
         if self.Pi == None:
             self.solve_riccati()
+            t1 = time.time()
+            print("MESSAGE - Ricatti equation solved in {:.2f}.".format(t1 - t0))
         sol = self.nonlinear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -self.B.conj().T @ self.Pi @ a)
+        print("MESSAGE - Nonlinear equation solved in {:.2f}.".format(time.time() - t0))
         return sol
 
     def check_are_conditions(self, A, B, Q, R):
@@ -395,16 +454,17 @@ class TestNonLinearTerm(unittest.TestCase):
             return (x**(alpha_param - 1) * (2 * np.pi - x)**(beta_param - 1)) / Z
 
         self.model = McKeanVlasovSolver(L=30, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0, min_fourier_samples=2000)
+        self.a = np.random.random(self.model.N) + 1j * np.random.random(self.model.N)
 
     def test_performance_comparison(self):
         # Measure performance of the original function
         start_time_original = time.time()
-        result_original = self.model.compute_bar_mu_method2()
+        result_original = self.model._compute_non_linear_term(self.a)
         time_original = time.time() - start_time_original
 
         # Measure performance of the improved function
         start_time_improved = time.time()
-        result_improved = self.model.compute_bar_mu_method3()
+        result_improved = self.model._compute_non_linear_term_v2(self.a)
         time_improved = time.time() - start_time_improved
 
         # Output the times for comparison
@@ -419,23 +479,180 @@ class TestNonLinearTerm(unittest.TestCase):
 
     def test_method_agreement(self):
         # Compute results from both functions
-        result_original = self.model.compute_bar_mu_method2()
-        result_improved = self.model.compute_bar_mu_method3()
+        result_original = self.model._compute_non_linear_term(self.a)
+        result_improved = self.model._compute_non_linear_term_v2(self.a)
 
         # Use assertArrayAlmostEqual from numpy.testing to compare arrays
         np.testing.assert_array_almost_equal(result_original, result_improved, decimal=6,
                                              err_msg="The outputs of the original and improved functions do not match.")
 
+class McKeanVlasovPlotter:
+    def __init__(self, solver):
+        self.solver = solver
+
+    def plot_function_over_time(self, x, data, times, ylabel, title):
+        """General function for plotting various data over time using a colorblind-friendly palette."""
+        # Define a set of colorblind-friendly colors
+        colors = [
+            "#E69F00",  # Orange
+            "#56B4E9",  # Sky Blue
+            "#009E73",  # Bluish Green
+            "#F0E442",  # Yellow
+            "#0072B2",  # Blue
+            "#D55E00",  # Vermillion
+            "#CC79A7"   # Reddish Purple
+        ]
+
+        fig, ax = plt.subplots()
+        for i, time in enumerate(times):
+            # Cycle through colors if there are more times than colors
+            color = colors[i % len(colors)]
+            ax.plot(x, data[:, i], label=f't={time:.2f}', color=color)
+
+        ax.set_xlabel('$x$', fontsize=14)
+        ax.set_ylabel(ylabel, fontsize=14)
+        ax.legend()
+        ax.set_title(title)
+        plt.show()
+
+    def plot_mu_x_t(self, t_values):
+        x = np.linspace(0, self.solver.d, 1000)
+        solution = self.solver.nonlinear_uncontrolled_solver_mu(t_span=(0, max(t_values)), t_eval=t_values)
+        t_indices = [np.argmin(np.abs(solution.t - t)) for t in t_values]
+        data = np.array([self.solver.reconstruction(solution.y[:, i], x) for i in t_indices]).T
+        self.plot_function_over_time(x, data, solution.t[t_indices], '$\mu(x, t)$', 'Nonlinear Uncontrolled $\mu(x, t)$ for different times')
+
+    def plot_y_x_t(self, t_values):
+        x = np.linspace(0, self.solver.d, 1000)
+        solution = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, max(t_values)), t_eval=t_values)
+        t_indices = [np.argmin(np.abs(solution.t - t)) for t in t_values]
+        data = np.array([self.solver.reconstruction(solution.y[:, i], x) for i in t_indices]).T
+        self.plot_function_over_time(x, data, solution.t[t_indices], '$y(x, t)$', 'Nonlinear Uncontrolled $y(x, t)$ for different times')
+
+    def plot_mu_bar_x(self):
+        x = np.linspace(0, self.solver.d, 1000)
+        mu_bar = self.solver.reconstruction(self.solver.bar_mu_k, x)
+        mu0 = self.solver.reconstruction(self.solver.mu0_projected, x)
+        plt.figure()
+        plt.plot(x, mu_bar, label=r'$\bar{\mu}(x)$')
+        plt.plot(x, mu0, label=r'$\mu_0(x)$')
+        plt.xlabel('$x$', fontsize=14)
+        plt.title(r'Plot of $\bar{\mu}(x)$ and $\mu_0(x)$')
+        plt.legend()
+        plt.show()
+
+    def plot_control_and_norm(self, t_max):
+        # Generate the control function values
+        solution = self.solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
+        solution2 = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
+        t_points = solution.t
+        control = [-self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i] for i in range(len(t_points))]
+
+        # Calculate the L^2 norm of y(t)
+        y_norm = np.linalg.norm(solution.y, axis=0)
+        y_norm2 = np.linalg.norm(solution2.y, axis=0)
+
+        # Creating the subplot figure
+        _, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+        # Plotting ||y(., t)||_{L^2} over time
+        ax1.plot(t_points, y_norm, color="#0072B2", label="Controlled")
+        ax1.plot(t_points, y_norm2, color="red", label="Uncontrolled")
+        ax1.set_xlabel('Time $t$', fontsize=14)
+        ax1.set_ylabel('$||y(., t)||_{L^2}$', fontsize=14)
+        ax1.set_title('Norm of $y(t)$ over Time')
+        ax1.legend()
+
+        # Plotting the control function
+        ax2.plot(t_points, control, color="#D55E00")  # Vermillion color for visibility
+        ax2.set_xlabel('Time $t$', fontsize=14)
+        ax2.set_ylabel('Control $u(t)$', fontsize=14)
+        ax2.set_title('Control Function over Time')
+
+        # Display the plots
+        plt.tight_layout()
+        plt.show()
+
+    def plot_y_diff_L2_norm(self, t_max):
+
+        y_nonlinear = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, 30*t_max))
+        y_linear = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, 30*t_max))
+
+        # Calculate the L2 norm difference
+        diff = np.linalg.norm(y_nonlinear.y - y_linear.y, axis=0)
+        plt.figure()
+        plt.plot(y_linear.t, diff)
+        plt.xlabel('Time $t$', fontsize=14)
+        plt.ylabel('$||y(., t) - y_L(., t)||_{L^2}$', fontsize=14)
+        plt.title(f'L2 norm difference over time')
+        plt.show()
+
+    def animate_solution(self, t_values):
+        # Precompute the solution for the given time values
+        t_span = (0, max(t_values))
+        solution = self.solver.solve_control_problem(t_span=t_span, t_eval=t_values)
+        x = np.linspace(0, self.solver.d, 1000)
+        alpha_x = self.solver.grad_alpha(x)  # Evaluate alpha over x
+        y_reconstructed = [self.solver.reconstruction(solution.y[:, i], x) for i in range(len(solution.t))]
+        
+        # Calculate overall min and max from reconstructed values and the alpha*control product
+        min_y = min([np.min(y) for y in y_reconstructed])
+        max_y = max([np.max(y) for y in y_reconstructed])
+        
+        # Compute control values
+        controls = [-self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i] for i in range(len(solution.t))]
+        alpha_control = [alpha_x * control for control in controls]
+        
+        # Adjust the y-limits to include alpha*control plots
+        min_y = min(min_y, min(np.min(ac) for ac in alpha_control))
+        max_y = max(max_y, max(np.max(ac) for ac in alpha_control))
+
+        fig, ax = plt.subplots()
+        line, = ax.plot([], [], lw=2, label='y(x, t)')
+        line_alpha_control, = ax.plot([], [], lw=2, label=r'$\nabla \alpha(x) \cdot u(t)$', linestyle='--', color='red')
+        time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
+        ax.set_title("Dynamics of y over Time")
+        ax.legend()
+
+        def init():
+            line.set_data([], [])
+            line_alpha_control.set_data([], [])
+            time_text.set_text('')
+            ax.set_xlim(0, self.solver.d)
+            ax.set_ylim(min_y, max_y)
+            return line, line_alpha_control, time_text
+
+        def update(frame):
+            y = y_reconstructed[frame]
+            line.set_data(x, y)
+            ac = alpha_control[frame]
+            line_alpha_control.set_data(x, ac)
+            time_text.set_text(f'Time = {t_values[frame]:.2f}s')
+            return line, line_alpha_control, time_text
+
+        ani = FuncAnimation(fig, update, frames=len(t_values), init_func=init, blit=True, interval=200)
+        plt.show()
+
+def profile_solver(solver):
+    # Replace these with your actual parameters
+    t_max = 10
+    solution = solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
+
 if __name__ == '__main__':
+
+    #unittest.main()
 
     def G(x):
         return (x - np.pi)**2
 
     def alpha(x):
-        return np.ones_like(x)
+        return np.sin(x) + np.cos(x)
+    
+    def nabla_alpha(x):
+        return np.cos(x) - np.sin(x)
 
     def W(x):
-        return (x - np.pi)**2
+        return abs(x - np.pi)**0.1
 
     def mu_0(x):
         alpha_param = 2.0
@@ -443,37 +660,45 @@ if __name__ == '__main__':
         Z = (2 * np.pi)**(alpha_param + beta_param - 1) * beta(alpha_param, beta_param)
         return (x**(alpha_param - 1) * (2 * np.pi - x)**(beta_param - 1)) / Z
     
-    #unittest.main()
+    def mu_0_mixed(x):
+        alpha_param1 = 4.0
+        beta_param1 = 2.0
+        Z1 = (2 * np.pi)**(alpha_param1 + beta_param1 - 1) * beta(alpha_param1, beta_param1)
 
-    # Initialize the solver
-    solver = McKeanVlasovSolver(L=30, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0, min_fourier_samples=2000, delta=0.0)
+        alpha_param2 = 2.0
+        beta_param2 = 10.0
+        Z2 = (2 * np.pi)**(alpha_param2 + beta_param2 - 1) * beta(alpha_param2, beta_param2)
+        return 0.5*(x**(alpha_param1 - 1) * (2 * np.pi - x)**(beta_param1 - 1)) / Z1 + 0.5*(x**(alpha_param2 - 1) * (2 * np.pi - x)**(beta_param2 - 1)) / Z2
     
-    t_span = (0, 10)
-    t_eval = np.linspace(0, 10, 500)
-    x = np.linspace(0, 2*np.pi, num=1000)
+    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.01)
 
-    solution = solver.solve_control_problem(t_span, t_eval)
-    control = [-solver.B.conj().T @ solver.Pi @ solution.y[:, i] for i in range(len(solution.t))]
+    t_max = 2
+    solution = solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
+    t_points = solution.t
+    control = [-solver.B.conj().T @ solver.Pi @ solution.y[:, i] for i in range(len(t_points))]
 
-    #solution1 = solver.linearized_uncontrolled_solver(t_span, t_eval)
-    #solution2 = solver.nonlinear_uncontrolled_solver_y(t_span, t_eval)
+    plt.plot(t_points, control)
+    plt.show()
 
-    #time_points = solution1.t
-    #coefficients1 = solution1.y
-    #coefficients2 = solution2.y
+    plotter = McKeanVlasovPlotter(solver)
 
-    #vect = [np.sum(abs(solver.reconstruction(coefficients1[:,i], x) - solver.reconstruction(coefficients2[:,i], x))) for i in range(len(time_points))]
-    
-    #plt.plot(time_points, vect, label="Initial")
-    #plt.show()
-    #plt.plot(x, , label="Final")
+    plotter.plot_mu_bar_x()
 
-    #time_points = solution.t
-    #coefficients = solution.y
-    #vect = solver.reconstruction(coefficients[:,-1], x)
+    plotter.plot_control_and_norm(t_max=2)
 
-    #plt.plot(x, vect)
-    #plt.show()
-    #plt.plot(time_points, control)
-    #plt.legend()
-    #plt.show()
+    #plotter.animate_solution(t_values=np.linspace(0,2,50))
+
+    if False:
+        profiler = cProfile.Profile()
+        profiler.enable()
+
+        profile_solver(solver)
+
+        profiler.disable()
+
+        s = io.StringIO()
+        sort_by = 'cumulative'  # Sort by cumulative time spent in the function
+        ps = pstats.Stats(profiler, stream=s).sort_stats(sort_by)
+        ps.print_stats()
+
+        print(s.getvalue())
