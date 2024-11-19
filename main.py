@@ -339,7 +339,7 @@ class McKeanVlasovSolver:
 
     def solve_control_linearized_problem(self, t_span, t_eval=None):
         """Solve the linearized and controlled McKean-Vlasov equation."""
-        if self.Pi == None:
+        if self.Pi is None:
             self.solve_riccati()
         sol = self.linear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -self.B.conj().T @ self.Pi @ a)
         return sol
@@ -347,7 +347,7 @@ class McKeanVlasovSolver:
     def solve_control_problem(self, t_span, t_eval=None):
         """Solve the non-linear and controlled McKean-Vlasov equation."""
         t0 = time.time()
-        if self.Pi == None:
+        if self.Pi is None:
             self.solve_riccati()
             t1 = time.time()
             print("MESSAGE - Ricatti equation solved in {:.2f}.".format(t1 - t0))
@@ -646,7 +646,7 @@ if __name__ == '__main__':
 
     plotter.plot_control_and_norm(t_max=2)
 
-    plotter.animate_solution(t_values=np.linspace(0,2,50))
+    #plotter.animate_solution(t_values=np.linspace(0,2,50))
 
     if False:
         profiler = cProfile.Profile()
