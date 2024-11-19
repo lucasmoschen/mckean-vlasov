@@ -370,7 +370,7 @@ class McKeanVlasovSolver:
 
     def solve_control_linearized_problem(self, t_span, t_eval=None):
         """Solve the linearized and controlled McKean-Vlasov equation."""
-        if self.Pi == None:
+        if self.Pi is None:
             self.solve_riccati()
         sol = self.linear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -self.B.conj().T @ self.Pi @ a)
         return sol
