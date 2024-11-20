@@ -557,8 +557,8 @@ class McKeanVlasovPlotter:
         _, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
         # Plotting ||y(., t)||_{L^2} over time
-        ax1.plot(t_points, y_norm + 1e-10, color="#0072B2", label="Controlled")
-        ax1.plot(t_points, y_norm2 + 1e-10, color="red", label="Uncontrolled")
+        ax1.plot(t_points, y_norm, color="#0072B2", label="Controlled")
+        ax1.plot(t_points, y_norm2, color="red", label="Uncontrolled")
         ax1.set_xlabel('Time $t$', fontsize=14)
         ax1.set_ylabel('$||y(., t)||_{L^2}$', fontsize=14)
         ax1.set_title('Norm of $y(t)$ over Time')
@@ -566,7 +566,7 @@ class McKeanVlasovPlotter:
         ax1.legend()
 
         # Plotting the control function
-        ax2.plot(t_points, abs(control) + 1e-10, color="#D55E00")  # Vermillion color for visibility
+        ax2.plot(t_points, abs(control), color="#D55E00")  # Vermillion color for visibility
         ax2.set_xlabel('Time $t$', fontsize=14)
         ax2.set_ylabel('Control $u(t)$', fontsize=14)
         ax2.set_title('Control Function over Time')
@@ -591,8 +591,8 @@ class McKeanVlasovPlotter:
         _, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
         # Plotting ||y(., t)||_{L^2} over time
-        ax1.plot(t_points, y_norm + 1e-10, color="#0072B2", label="Controlled")
-        ax1.plot(t_points, y_norm2 + 1e-10, color="red", label="Uncontrolled")
+        ax1.plot(t_points, y_norm, color="#0072B2", label="Controlled")
+        ax1.plot(t_points, y_norm2, color="red", label="Uncontrolled")
         ax1.set_yscale("log")
         ax1.set_xlabel('Time $t$', fontsize=14)
         ax1.set_ylabel('$||y(., t)||_{L^2}$', fontsize=14)
@@ -600,7 +600,7 @@ class McKeanVlasovPlotter:
         ax1.legend()
 
         # Plotting the control function
-        ax2.plot(t_points, abs(control) + 1e-10, color="#D55E00")  # Vermillion color for visibility
+        ax2.plot(t_points, abs(control), color="#D55E00")  # Vermillion color for visibility
         ax2.set_yscale("log")
         ax2.set_xlabel('Time $t$', fontsize=14)
         ax2.set_ylabel('Control $u(t)$', fontsize=14)
