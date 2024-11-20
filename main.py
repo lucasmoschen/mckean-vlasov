@@ -59,7 +59,7 @@ class McKeanVlasovSolver:
         try:
             self.compute_bar_mu()
         except:
-            print("Method 1 didn't work.")
+            print("WARNING - Method 1 didn't work.")
             self.bar_mu_k = self.compute_bar_mu_method2()
         self._compute_K_matrix()
         # Project y0 onto the Fourier basis
@@ -67,7 +67,7 @@ class McKeanVlasovSolver:
 
         # Control-related matrices
         if self.grad_alpha == "constant":
-            self.Psi = np.diag(2*np.pi/self.d * 1j * self.k_vals)
+            self.Psi = 2*np.pi/self.d * 1j * np.diag(self.k_vals)
             self.grad_alpha = lambda x: np.ones_like(x)
             self.alpha = lambda x: x - self.d/2
         else:
@@ -383,7 +383,7 @@ class McKeanVlasovSolver:
             self.solve_riccati()
             t1 = time.time()
             print("MESSAGE - Ricatti equation solved in {:.2f}.".format(t1 - t0))
-        sol = self.nonlinear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -self.B.conj().T @ self.Pi @ a)
+        sol = self.nonlinear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -np.real(self.B.conj().T @ self.Pi @ a))
         print("MESSAGE - Nonlinear equation solved in {:.2f}.".format(time.time() - t0))
         return sol
 
@@ -557,15 +557,51 @@ class McKeanVlasovPlotter:
         _, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
         # Plotting ||y(., t)||_{L^2} over time
-        ax1.plot(t_points, y_norm, color="#0072B2", label="Controlled")
-        ax1.plot(t_points, y_norm2, color="red", label="Uncontrolled")
+        ax1.plot(t_points, y_norm + 1e-10, color="#0072B2", label="Controlled")
+        ax1.plot(t_points, y_norm2 + 1e-10, color="red", label="Uncontrolled")
         ax1.set_xlabel('Time $t$', fontsize=14)
         ax1.set_ylabel('$||y(., t)||_{L^2}$', fontsize=14)
         ax1.set_title('Norm of $y(t)$ over Time')
+        ax1.set_yscale("log")
         ax1.legend()
 
         # Plotting the control function
-        ax2.plot(t_points, control, color="#D55E00")  # Vermillion color for visibility
+        ax2.plot(t_points, abs(control) + 1e-10, color="#D55E00")  # Vermillion color for visibility
+        ax2.set_xlabel('Time $t$', fontsize=14)
+        ax2.set_ylabel('Control $u(t)$', fontsize=14)
+        ax2.set_title('Control Function over Time')
+        ax2.set_yscale("log")
+
+        # Display the plots
+        plt.tight_layout()
+        plt.show()
+
+    def plot_control_and_norm_linear(self, t_max):
+        # Generate the control function values
+        solution = self.solver.solve_control_linearized_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
+        solution2 = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
+        t_points = solution.t
+        control = np.real([-self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i] for i in range(len(t_points))])
+
+        # Calculate the L^2 norm of y(t)
+        y_norm = np.linalg.norm(solution.y, axis=0)
+        y_norm2 = np.linalg.norm(solution2.y, axis=0)
+
+        # Creating the subplot figure
+        _, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+        # Plotting ||y(., t)||_{L^2} over time
+        ax1.plot(t_points, y_norm + 1e-10, color="#0072B2", label="Controlled")
+        ax1.plot(t_points, y_norm2 + 1e-10, color="red", label="Uncontrolled")
+        ax1.set_yscale("log")
+        ax1.set_xlabel('Time $t$', fontsize=14)
+        ax1.set_ylabel('$||y(., t)||_{L^2}$', fontsize=14)
+        ax1.set_title('Norm of $y(t)$ linearized over Time')
+        ax1.legend()
+
+        # Plotting the control function
+        ax2.plot(t_points, abs(control) + 1e-10, color="#D55E00")  # Vermillion color for visibility
+        ax2.set_yscale("log")
         ax2.set_xlabel('Time $t$', fontsize=14)
         ax2.set_ylabel('Control $u(t)$', fontsize=14)
         ax2.set_title('Control Function over Time')
@@ -694,13 +730,15 @@ if __name__ == '__main__':
                                 grad_alpha="constant", state_weight=100)
     plotter = McKeanVlasovPlotter(solver)
 
-    plotter.plot_mu_bar_x()
+    #plotter.plot_mu_bar_x()
 
-    plotter.plot_control_and_norm(t_max=0.5)
+    #plotter.plot_control_and_norm_linear(t_max=1.0)
 
-    plotter.plot_pi_matrix()
+    #plotter.plot_control_and_norm(t_max=0.5)
 
-    plotter.plot_y_diff_L2_norm(t_max=0.5)
+    #plotter.plot_pi_matrix()
+
+    #plotter.plot_y_diff_L2_norm(t_max=0.5)
 
     plotter.animate_solution(t_values=np.linspace(0, 0.5, 50))
 
