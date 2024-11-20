@@ -433,7 +433,7 @@ class McKeanVlasovSolver:
             rank_C = np.linalg.matrix_rank(extended_matrix)
             assert rank_C == A.shape[0], \
                     "The pair (A, B) is not stabilizable, rank(C) = {} < rank(A) = {}, eigenvalues = {}".format(rank_C, A.shape[0], unstable_eigenvalues)
-        print("All conditions satisfied. Matrices are suitable for solving the ARE.")
+        print("MESSAGE - All conditions satisfied. Matrices are suitable for solving the ARE.")
 
 class TestImpromentFunction(unittest.TestCase):
     
@@ -548,8 +548,8 @@ class McKeanVlasovPlotter:
 
     def plot_control_and_norm(self, t_max):
         # Generate the control function values
-        solution = self.solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
-        solution2 = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
+        solution = self.solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 50)))))
+        solution2 = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 50)))))
         t_points = solution.t
         control = np.real([-self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i] for i in range(len(t_points))])
 
@@ -572,9 +572,9 @@ class McKeanVlasovPlotter:
         # Plotting the control function
         ax2.plot(t_points, abs(control), color="#D55E00")  # Vermillion color for visibility
         ax2.set_xlabel('Time $t$', fontsize=14)
+        ax2.set_yscale('log')
         ax2.set_ylabel('Control $u(t)$', fontsize=14)
         ax2.set_title('Control Function over Time')
-        ax2.set_yscale("log")
 
         # Display the plots
         plt.tight_layout()
@@ -582,8 +582,8 @@ class McKeanVlasovPlotter:
 
     def plot_control_and_norm_linear(self, t_max):
         # Generate the control function values
-        solution = self.solver.solve_control_linearized_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
-        solution2 = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
+        solution = self.solver.solve_control_linearized_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 50)))))
+        solution2 = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 50)))))
         t_points = solution.t
         control = np.real([-self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i] for i in range(len(t_points))])
 
@@ -604,8 +604,8 @@ class McKeanVlasovPlotter:
         ax1.legend()
 
         # Plotting the control function
-        ax2.plot(t_points, abs(control), color="#D55E00")  # Vermillion color for visibility
-        ax2.set_yscale("log")
+        ax2.plot(t_points, abs(control), color="#D55E00")
+        ax2.set_yscale('log')
         ax2.set_xlabel('Time $t$', fontsize=14)
         ax2.set_ylabel('Control $u(t)$', fontsize=14)
         ax2.set_title('Control Function over Time')
@@ -728,7 +728,7 @@ if __name__ == '__main__':
         return np.cos(x) - np.sin(x)
 
     def W(x):
-        return abs(x - np.pi)
+        return abs(x - np.pi)**2
 
     def mu_0(x):
         alpha_param = 2.0
@@ -746,13 +746,13 @@ if __name__ == '__main__':
         Z2 = (2 * np.pi)**(alpha_param2 + beta_param2 - 1) * beta(alpha_param2, beta_param2)
         return 0.5*(x**(alpha_param1 - 1) * (2 * np.pi - x)**(beta_param1 - 1)) / Z1 + 0.5*(x**(alpha_param2 - 1) * (2 * np.pi - x)**(beta_param2 - 1)) / Z2
     
-    solver = McKeanVlasovSolver(L=30, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0, min_fourier_samples=2000, delta=-0.0001, 
-                                grad_alpha=nabla_alpha, state_weight=100)
+    solver = McKeanVlasovSolver(L=100, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.0001, 
+                                grad_alpha=nabla_alpha, state_weight=1000)
     plotter = McKeanVlasovPlotter(solver)
 
     plotter.plot_mu_bar_x()
 
-    plotter.plot_control_and_norm_linear(t_max=5.0)
+    plotter.plot_control_and_norm(t_max=5.0)
 
     #plotter.plot_control_and_norm(t_max=0.5)
 

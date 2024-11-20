@@ -6,6 +6,7 @@ from scipy.special import beta
 from scipy.fft import fft, ifft
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+import seaborn as sns
 import time
 import unittest
 from scipy.linalg import eigvals
@@ -16,7 +17,7 @@ import io
 
 class McKeanVlasovSolver:
 
-    def __init__(self, L, d, G, alpha, W, mu_0, sigma=1.0, delta=0.0, M=None, grad_alpha=None, min_fourier_samples=200):
+    def __init__(self, L, d, G, alpha, W, mu_0, sigma=1.0, delta=0.0, M=None, grad_alpha=None, min_fourier_samples=200, state_weight=1000):
         """
         Initialize the McKean-Vlasov solver.
 
@@ -34,7 +35,7 @@ class McKeanVlasovSolver:
         self.L = L
         self.d = d
         self.G = G
-        self.alpha = alpha
+        self.alpha = alpha  # vector with alpha_j functions
         self.W = W
         self.mu_0 = mu_0
         self.sigma = sigma
@@ -58,24 +59,27 @@ class McKeanVlasovSolver:
         try:
             self.compute_bar_mu()
         except:
-            print("Method 1 didn't work.")
+            print("WARNING - Method 1 didn't work.")
             self.bar_mu_k = self.compute_bar_mu_method2()
         self._compute_K_matrix()
         # Project y0 onto the Fourier basis
         self.a0 = self.bar_mu_k - self.mu0_projected
 
         # Control-related matrices
-        if self.grad_alpha == "constant":
-            self.Psi = np.diag(2*np.pi/self.d * 1j * self.k_vals)
-            self.grad_alpha = lambda x: np.ones_like(x)
-            self.alpha = lambda x: x - self.d/2
+        if type(self.grad_alpha) == str:
+            if self.grad_alpha == "constant":
+                self.Psi = np.stack([2*np.pi/self.d * 1j * np.diag(self.k_vals) for _ in range(len(alpha))], axis=0)
+                self.grad_alpha = lambda x: np.full((len(alpha),) + x.shape, 1.0)
+                self.alpha = [lambda x: x - self.d/2 for j in range(len(alpha))]
+            else:
+                self._compute_Psi_matrix(min_fourier_samples)
         else:
             self._compute_Psi_matrix(min_fourier_samples)
-        self.b = self.Psi @ self.bar_mu_k
+        self.B = np.array([-self.Psi[j] @ self.bar_mu_k for j in range(len(alpha))]).T
         self.Pi = None
 
         # Cost matrix M
-        self.M = 10 * np.identity(self.N) if M is None else M
+        self.M = state_weight * np.identity(self.N) if M is None else M
 
     def reconstruction(self, a, x):
         """
@@ -207,13 +211,17 @@ class McKeanVlasovSolver:
 
     def _compute_Psi_matrix(self, min_fourier_samples):
         """
-        Compute matrix Psi = <phi_j alpha', phi_i >.
+        Compute matrix Psi = [<phi_j alpha_j', phi_i > for j = 1,...,m]
         """
-        self.Psi = np.zeros((self.N, self.N), dtype=np.complex128)
-        alpha_coeffs = self._project_Fourier_basis_FFT(self.alpha, project_on=2*self.L, min_fourier_samples=min_fourier_samples)
-        l_idx_indexes = np.arange(0, 2*self.L+1)
-        for k_idx in range(self.N):
-            self.Psi[k_idx, :] = 4*np.pi**2*(k_idx - self.L)/self.d**2 * (k_idx - l_idx_indexes) * alpha_coeffs[k_idx - l_idx_indexes + 2*self.L] / np.sqrt(self.d)
+        self.Psi = []
+        for _, alpha_j in enumerate(self.alpha):
+            Psi_j = np.zeros((self.N, self.N), dtype=np.complex128)
+            alpha_coeffs = self._project_Fourier_basis_FFT(alpha_j, project_on=2*self.L, min_fourier_samples=min_fourier_samples)
+            l_idx_indexes = np.arange(0, 2*self.L+1)
+            for k_idx in range(self.N):
+                Psi_j[k_idx, :] = 4*np.pi**2*(k_idx - self.L)/self.d**2 * (k_idx - l_idx_indexes) * alpha_coeffs[k_idx - l_idx_indexes + 2*self.L] / np.sqrt(self.d)
+            self.Psi.append(Psi_j)
+        self.Psi = np.stack(self.Psi, axis=0)
 
     def _compute_T(self):
         """
@@ -325,23 +333,24 @@ class McKeanVlasovSolver:
         sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
-    def nonlinear_controlled_solver_mu(self, t_span, t_eval=None, u=lambda t: np.zeros_like(t)):
+    def nonlinear_controlled_solver_mu(self, t_span, t_eval=None, u=lambda t: np.full((1,) + t.shape, 0.0)):
         """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
         def ode_system(t, a, u):
             a = self._conjugate_wrapper(a, c=1/np.sqrt(self.d))
             nonlinear_term = self._compute_non_linear_term(a)
-            derivative = -(self.L_G + self.sigma * self.D - u(t) * self.Psi) @ a - nonlinear_term
+            derivative = -(self.L_G + self.sigma * self.D - np.sum(u(t,a).reshape(-1,1,1) * self.Psi, axis=0)) @ a - nonlinear_term
             return self._real_wrapper(derivative)
         sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.mu0_projected), t_eval=t_eval, args=(u,))
         sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
-    def nonlinear_controlled_solver_y(self, t_span, t_eval=None, u=lambda t,a: np.zeros_like(t)):
+    def nonlinear_controlled_solver_y(self, t_span, t_eval=None, u=lambda t,a: np.full((1,), t.shape, 0.0)):
         """Solve the non-linear and controlled McKean-Vlasov equation for y."""
         def ode_system(t, a, u):
             a = self._conjugate_wrapper(a)
             nonlinear_term = self._compute_non_linear_term(a)
-            derivative = -(self.L_G + self.sigma * self.D + self.K + u(t,a) * self.Psi) @ a - nonlinear_term - u(t,a) * self.b
+            derivative = -(self.L_G + self.sigma * self.D + self.K + np.sum(u(t,a).reshape(-1,1,1) * self.Psi, axis=0)) @ a
+            derivative += -nonlinear_term + self.B @ u(t,a)
             return self._real_wrapper(derivative)
         sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, args=(u,))
         sol.y = self._conjugate_wrapper_matrix(sol.y)
@@ -351,7 +360,7 @@ class McKeanVlasovSolver:
         """Solve the linear and controlled McKean-Vlasov equation for y."""
         def ode_system(t, a, u):
             a = self._conjugate_wrapper(a)
-            derivative = -(self.L_G + self.sigma * self.D + self.K) @ a - u(t,a) * self.b + self.delta * a
+            derivative = -(self.L_G + self.sigma * self.D + self.K) @ a + self.B @ u(t,a) + self.delta * a
             return self._real_wrapper(derivative)
         sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, args=(u,))
         sol.y = self._conjugate_wrapper_matrix(sol.y)
@@ -360,7 +369,6 @@ class McKeanVlasovSolver:
     def solve_riccati(self):
         """Solve the Riccati equation to compute Pi."""
         A = -self.L_G - self.sigma * self.D - self.K + self.delta * np.eye(self.L_G.shape[0])
-        self.B = -np.reshape(self.b, (-1,1))
         
         self.check_are_conditions(A, self.B, self.M, np.eye(self.B.shape[1]))
 
@@ -370,19 +378,19 @@ class McKeanVlasovSolver:
 
     def solve_control_linearized_problem(self, t_span, t_eval=None):
         """Solve the linearized and controlled McKean-Vlasov equation."""
-        if self.Pi == None:
+        if self.Pi is None:
             self.solve_riccati()
-        sol = self.linear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -self.B.conj().T @ self.Pi @ a)
+        sol = self.linear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -np.real(self.B.conj().T @ self.Pi @ a))
         return sol
 
     def solve_control_problem(self, t_span, t_eval=None):
         """Solve the non-linear and controlled McKean-Vlasov equation."""
         t0 = time.time()
-        if self.Pi == None:
+        if self.Pi is None:
             self.solve_riccati()
             t1 = time.time()
             print("MESSAGE - Ricatti equation solved in {:.2f}.".format(t1 - t0))
-        sol = self.nonlinear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -self.B.conj().T @ self.Pi @ a)
+        sol = self.nonlinear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -np.real(self.B.conj().T @ self.Pi @ a))
         print("MESSAGE - Nonlinear equation solved in {:.2f}.".format(time.time() - t0))
         return sol
 
@@ -434,9 +442,13 @@ class McKeanVlasovSolver:
                     "The pair (A, B) is not stabilizable, rank(C) = {} < rank(A) = {}, eigenvalues = {}".format(rank_C, A.shape[0], unstable_eigenvalues)
         print("All conditions satisfied. Matrices are suitable for solving the ARE.")
 
-class TestNonLinearTerm(unittest.TestCase):
+
+class TestImpromentFunction(unittest.TestCase):
     
     def setUp(self):
+        """
+        Describe the set ups your experiment with self.
+        """
 
         def G(x):
             return (x - np.pi)**2
@@ -459,12 +471,12 @@ class TestNonLinearTerm(unittest.TestCase):
     def test_performance_comparison(self):
         # Measure performance of the original function
         start_time_original = time.time()
-        result_original = self.model._compute_non_linear_term(self.a)
+        result_original = self.original_function(self.a)
         time_original = time.time() - start_time_original
 
         # Measure performance of the improved function
         start_time_improved = time.time()
-        result_improved = self.model._compute_non_linear_term_v2(self.a)
+        result_improved = self.new_function(self.a)
         time_improved = time.time() - start_time_improved
 
         # Output the times for comparison
@@ -479,14 +491,15 @@ class TestNonLinearTerm(unittest.TestCase):
 
     def test_method_agreement(self):
         # Compute results from both functions
-        result_original = self.model._compute_non_linear_term(self.a)
-        result_improved = self.model._compute_non_linear_term_v2(self.a)
+        result_original = self.original_function(self.a)
+        result_improved = self.new_function(self.a)
 
         # Use assertArrayAlmostEqual from numpy.testing to compare arrays
         np.testing.assert_array_almost_equal(result_original, result_improved, decimal=6,
                                              err_msg="The outputs of the original and improved functions do not match.")
 
 class McKeanVlasovPlotter:
+    
     def __init__(self, solver):
         self.solver = solver
 
@@ -543,10 +556,10 @@ class McKeanVlasovPlotter:
 
     def plot_control_and_norm(self, t_max):
         # Generate the control function values
-        solution = self.solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
-        solution2 = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
+        solution = self.solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 50)))))
+        solution2 = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 50)))))
         t_points = solution.t
-        control = [-self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i] for i in range(len(t_points))]
+        control = np.array([np.real(self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i]) for i in range(len(t_points))]).T
 
         # Calculate the L^2 norm of y(t)
         y_norm = np.linalg.norm(solution.y, axis=0)
@@ -561,10 +574,48 @@ class McKeanVlasovPlotter:
         ax1.set_xlabel('Time $t$', fontsize=14)
         ax1.set_ylabel('$||y(., t)||_{L^2}$', fontsize=14)
         ax1.set_title('Norm of $y(t)$ over Time')
+        ax1.set_yscale("log")
         ax1.legend()
 
         # Plotting the control function
-        ax2.plot(t_points, control, color="#D55E00")  # Vermillion color for visibility
+        for j in range(len(self.solver.alpha)):
+            ax2.plot(t_points, abs(control[j]), color="#D55E00")
+        ax2.set_xlabel('Time $t$', fontsize=14)
+        ax2.set_ylabel('Control $u(t)$', fontsize=14)
+        ax2.set_title('Control Function over Time')
+        ax2.set_yscale("log")
+
+        # Display the plots
+        plt.tight_layout()
+        plt.show()
+
+    def plot_control_and_norm_linear(self, t_max):
+        # Generate the control function values
+        solution = self.solver.solve_control_linearized_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 50)))))
+        solution2 = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 50)))))
+        t_points = solution.t
+        control = np.array([np.real(self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i]) for i in range(len(t_points))]).T
+
+        # Calculate the L^2 norm of y(t)
+        y_norm = np.linalg.norm(solution.y, axis=0)
+        y_norm2 = np.linalg.norm(solution2.y, axis=0)
+
+        # Creating the subplot figure
+        _, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+        # Plotting ||y(., t)||_{L^2} over time
+        ax1.plot(t_points, y_norm, color="#0072B2", label="Controlled")
+        ax1.plot(t_points, y_norm2, color="red", label="Uncontrolled")
+        ax1.set_yscale("log")
+        ax1.set_xlabel('Time $t$', fontsize=14)
+        ax1.set_ylabel('$||y(., t)||_{L^2}$', fontsize=14)
+        ax1.set_title('Norm of $y(t)$ linearized over Time')
+        ax1.legend()
+
+        # Plotting the control function
+        for j in range(len(self.solver.alpha)):
+            ax2.plot(t_points, abs(control[j]), color="#D55E00")
+        ax2.set_yscale("log")
         ax2.set_xlabel('Time $t$', fontsize=14)
         ax2.set_ylabel('Control $u(t)$', fontsize=14)
         ax2.set_title('Control Function over Time')
@@ -575,8 +626,8 @@ class McKeanVlasovPlotter:
 
     def plot_y_diff_L2_norm(self, t_max):
 
-        y_nonlinear = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, 30*t_max))
-        y_linear = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, 30*t_max))
+        y_nonlinear = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
+        y_linear = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
 
         # Calculate the L2 norm difference
         diff = np.linalg.norm(y_nonlinear.y - y_linear.y, axis=0)
@@ -587,12 +638,31 @@ class McKeanVlasovPlotter:
         plt.title(f'L2 norm difference over time')
         plt.show()
 
+    def plot_pi_matrix(self, cmap='viridis'):
+
+        pi_abs = np.minimum(np.abs(self.solver.Pi), 1)
+
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(pi_abs, fmt=".2f", cmap=cmap)
+        
+        plt.title('Absolute Values of Pi Matrix')
+        plt.tight_layout()
+        plt.show()
+
+        pi_abs = np.minimum(np.abs(self.solver.Pi @ self.solver.B), 10)
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(pi_abs, fmt=".2f", cmap=cmap)
+        
+        plt.title('Absolute Values of B^* Pi Matrix')
+        plt.tight_layout()
+        plt.show()
+
     def animate_solution(self, t_values):
         # Precompute the solution for the given time values
         t_span = (0, max(t_values))
         solution = self.solver.solve_control_problem(t_span=t_span, t_eval=t_values)
         x = np.linspace(0, self.solver.d, 1000)
-        alpha_x = self.solver.grad_alpha(x)  # Evaluate alpha over x
+        grad_alpha_x = [self.solver.grad_alpha[j](x) for j in range(self.alpha)]  # Evaluate alpha over x
         y_reconstructed = [self.solver.reconstruction(solution.y[:, i], x) for i in range(len(solution.t))]
         
         # Calculate overall min and max from reconstructed values and the alpha*control product
@@ -600,8 +670,8 @@ class McKeanVlasovPlotter:
         max_y = max([np.max(y) for y in y_reconstructed])
         
         # Compute control values
-        controls = [-self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i] for i in range(len(solution.t))]
-        alpha_control = [alpha_x * control for control in controls]
+        controls = [self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i] for i in range(len(solution.t))]
+        alpha_control = [np.sum([grad_alpha_x[j] * control[j] for j in range(self.solver.alpha)], axis=0) for control in controls]
         
         # Adjust the y-limits to include alpha*control plots
         min_y = min(min_y, min(np.min(ac) for ac in alpha_control))
@@ -633,17 +703,33 @@ class McKeanVlasovPlotter:
         ani = FuncAnimation(fig, update, frames=len(t_values), init_func=init, blit=True, interval=200)
         plt.show()
 
-def profile_solver(solver):
-    # Replace these with your actual parameters
-    t_max = 10
-    solution = solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, t_max * 30))
+def profile_time_analyser():
+    
+    profiler = cProfile.Profile()
+    profiler.enable()
+
+    def profile_solver(solver):
+        # Define here the function you would like to analyse.
+        t_max = 10
+        solution = solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
+
+    profile_solver(solver)
+
+    profiler.disable()
+
+    s = io.StringIO()
+    sort_by = 'cumulative'  # Sort by cumulative time spent in the function
+    ps = pstats.Stats(profiler, stream=s).sort_stats(sort_by)
+    ps.print_stats()
+
+    print(s.getvalue())
 
 if __name__ == '__main__':
 
     #unittest.main()
 
     def G(x):
-        return (x - np.pi)**2
+        return (x - np.pi)**2 # - 2 * (x - np.pi)**2 + 1
 
     def alpha(x):
         return np.sin(x) + np.cos(x)
@@ -652,7 +738,7 @@ if __name__ == '__main__':
         return np.cos(x) - np.sin(x)
 
     def W(x):
-        return abs(x - np.pi)**0.1
+        return abs(x - np.pi)**2
 
     def mu_0(x):
         alpha_param = 2.0
@@ -670,26 +756,18 @@ if __name__ == '__main__':
         Z2 = (2 * np.pi)**(alpha_param2 + beta_param2 - 1) * beta(alpha_param2, beta_param2)
         return 0.5*(x**(alpha_param1 - 1) * (2 * np.pi - x)**(beta_param1 - 1)) / Z1 + 0.5*(x**(alpha_param2 - 1) * (2 * np.pi - x)**(beta_param2 - 1)) / Z2
     
-    solver = McKeanVlasovSolver(L=20, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.01)
+    solver = McKeanVlasovSolver(L=100, d=2*np.pi, G=G, alpha=[alpha, lambda x: np.zeros_like(x)], W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.0001, 
+                                grad_alpha=[nabla_alpha, lambda x: np.zeros_like(x)], state_weight=1000)
     plotter = McKeanVlasovPlotter(solver)
 
-    #plotter.plot_mu_bar_x()
+    plotter.plot_mu_bar_x()
 
-    plotter.plot_control_and_norm(t_max=2)
+    plotter.plot_control_and_norm(t_max=5.0)
 
-    #plotter.animate_solution(t_values=np.linspace(0,2,50))
+    #plotter.plot_control_and_norm(t_max=0.5)
 
-    if False:
-        profiler = cProfile.Profile()
-        profiler.enable()
+    #plotter.plot_pi_matrix()
 
-        profile_solver(solver)
+    #plotter.plot_y_diff_L2_norm(t_max=0.5)
 
-        profiler.disable()
-
-        s = io.StringIO()
-        sort_by = 'cumulative'  # Sort by cumulative time spent in the function
-        ps = pstats.Stats(profiler, stream=s).sort_stats(sort_by)
-        ps.print_stats()
-
-        print(s.getvalue())
+    #plotter.animate_solution(t_values=np.linspace(0, 0.5, 50))
