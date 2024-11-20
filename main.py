@@ -435,9 +435,12 @@ class McKeanVlasovSolver:
                     "The pair (A, B) is not stabilizable, rank(C) = {} < rank(A) = {}, eigenvalues = {}".format(rank_C, A.shape[0], unstable_eigenvalues)
         print("All conditions satisfied. Matrices are suitable for solving the ARE.")
 
-class TestNonLinearTerm(unittest.TestCase):
+class TestImpromentFunction(unittest.TestCase):
     
     def setUp(self):
+        """
+        Describe the set ups your experiment with self.
+        """
 
         def G(x):
             return (x - np.pi)**2
@@ -460,12 +463,12 @@ class TestNonLinearTerm(unittest.TestCase):
     def test_performance_comparison(self):
         # Measure performance of the original function
         start_time_original = time.time()
-        result_original = self.model._compute_non_linear_term(self.a)
+        result_original = self.original_function(self.a)
         time_original = time.time() - start_time_original
 
         # Measure performance of the improved function
         start_time_improved = time.time()
-        result_improved = self.model._compute_non_linear_term_v2(self.a)
+        result_improved = self.new_function(self.a)
         time_improved = time.time() - start_time_improved
 
         # Output the times for comparison
@@ -480,14 +483,15 @@ class TestNonLinearTerm(unittest.TestCase):
 
     def test_method_agreement(self):
         # Compute results from both functions
-        result_original = self.model._compute_non_linear_term(self.a)
-        result_improved = self.model._compute_non_linear_term_v2(self.a)
+        result_original = self.original_function(self.a)
+        result_improved = self.new_function(self.a)
 
         # Use assertArrayAlmostEqual from numpy.testing to compare arrays
         np.testing.assert_array_almost_equal(result_original, result_improved, decimal=6,
                                              err_msg="The outputs of the original and improved functions do not match.")
 
 class McKeanVlasovPlotter:
+    
     def __init__(self, solver):
         self.solver = solver
 
@@ -689,17 +693,33 @@ class McKeanVlasovPlotter:
         ani = FuncAnimation(fig, update, frames=len(t_values), init_func=init, blit=True, interval=200)
         plt.show()
 
-def profile_solver(solver):
-    # Replace these with your actual parameters
-    t_max = 10
-    solution = solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
+def profile_time_analyser():
+    
+    profiler = cProfile.Profile()
+    profiler.enable()
+
+    def profile_solver(solver):
+        # Define here the function you would like to analyse.
+        t_max = 10
+        solution = solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
+
+    profile_solver(solver)
+
+    profiler.disable()
+
+    s = io.StringIO()
+    sort_by = 'cumulative'  # Sort by cumulative time spent in the function
+    ps = pstats.Stats(profiler, stream=s).sort_stats(sort_by)
+    ps.print_stats()
+
+    print(s.getvalue())
 
 if __name__ == '__main__':
 
     #unittest.main()
 
     def G(x):
-        return (x - np.pi)**4 - 2 * (x - np.pi)**2 + 1
+        return (x - np.pi)**2 # - 2 * (x - np.pi)**2 + 1
 
     def alpha(x):
         return np.sin(x) + np.cos(x)
@@ -727,12 +747,12 @@ if __name__ == '__main__':
         return 0.5*(x**(alpha_param1 - 1) * (2 * np.pi - x)**(beta_param1 - 1)) / Z1 + 0.5*(x**(alpha_param2 - 1) * (2 * np.pi - x)**(beta_param2 - 1)) / Z2
     
     solver = McKeanVlasovSolver(L=30, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0, min_fourier_samples=2000, delta=-0.0001, 
-                                grad_alpha="constant", state_weight=100)
+                                grad_alpha=nabla_alpha, state_weight=100)
     plotter = McKeanVlasovPlotter(solver)
 
-    #plotter.plot_mu_bar_x()
+    plotter.plot_mu_bar_x()
 
-    #plotter.plot_control_and_norm_linear(t_max=1.0)
+    plotter.plot_control_and_norm_linear(t_max=5.0)
 
     #plotter.plot_control_and_norm(t_max=0.5)
 
@@ -740,19 +760,4 @@ if __name__ == '__main__':
 
     #plotter.plot_y_diff_L2_norm(t_max=0.5)
 
-    plotter.animate_solution(t_values=np.linspace(0, 0.5, 50))
-
-    if False:
-        profiler = cProfile.Profile()
-        profiler.enable()
-
-        profile_solver(solver)
-
-        profiler.disable()
-
-        s = io.StringIO()
-        sort_by = 'cumulative'  # Sort by cumulative time spent in the function
-        ps = pstats.Stats(profiler, stream=s).sort_stats(sort_by)
-        ps.print_stats()
-
-        print(s.getvalue())
+    #plotter.animate_solution(t_values=np.linspace(0, 0.5, 50))
