@@ -591,6 +591,8 @@ class McKeanVlasovPlotter:
         y_norm = np.linalg.norm(solution.y, axis=0)
         y_norm2 = np.linalg.norm(solution2.y, axis=0)
 
+        print("MESSAGE - Total norm (controlled): {}, Total norm (uncontrolled): {}".format(self.solver.d*np.mean(y_norm), self.solver.d*np.mean(y_norm2)))
+
         # Creating the subplot figure
         _, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
@@ -746,13 +748,13 @@ if __name__ == '__main__':
         Z2 = (2 * np.pi)**(alpha_param2 + beta_param2 - 1) * beta(alpha_param2, beta_param2)
         return 0.5*(x**(alpha_param1 - 1) * (2 * np.pi - x)**(beta_param1 - 1)) / Z1 + 0.5*(x**(alpha_param2 - 1) * (2 * np.pi - x)**(beta_param2 - 1)) / Z2
     
-    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.0001, 
+    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0, min_fourier_samples=2000, delta=-0.0001, 
                                 grad_alpha=nabla_alpha, state_weight=1000)
     plotter = McKeanVlasovPlotter(solver)
 
     plotter.plot_mu_bar_x()
 
-    plotter.plot_control_and_norm(t_max=10.0)
+    plotter.plot_control_and_norm_linear(t_max=10.0)
 
     #plotter.plot_control_and_norm(t_max=0.5)
 
