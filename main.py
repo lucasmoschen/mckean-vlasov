@@ -262,8 +262,8 @@ class McKeanVlasovSolver:
         Vectorized computation of the non-linear term:
         T_k(a,a) = (4π²/d²) * k * sum_{m=-L}^L a[k - m] * a[m] * m * w[m]
         """
-        c = a * self.w * self.k_vals
-        T_sum = np.correlate(a, np.conjugate(c[::-1]), mode='same')
+        c = a * self.w * self.k_vals[::-1]
+        T_sum = np.correlate(a, c, mode='same')
         non_linear_term = (4 * np.pi**2) / (self.d**2) * self.k_vals * T_sum
         return non_linear_term
 
@@ -311,7 +311,7 @@ class McKeanVlasovSolver:
             nonlinear_term = self._compute_non_linear_term(a)
             derivative = -(self.L_G + self.sigma * self.D + self.K) @ a - nonlinear_term
             return self._real_wrapper(derivative)
-        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, atol=1e-10, rtol=1e-10)
         sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
 
@@ -333,7 +333,7 @@ class McKeanVlasovSolver:
             nonlinear_term = self._compute_non_linear_term(a)
             derivative = -(self.L_G + self.sigma * self.D - u(t) * self.Psi) @ a - nonlinear_term
             return self._real_wrapper(derivative)
-        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.mu0_projected), t_eval=t_eval, args=(u,))
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.mu0_projected), t_eval=t_eval, args=(u,), atol=1e-10, rtol=1e-10)
         sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
@@ -344,7 +344,7 @@ class McKeanVlasovSolver:
             nonlinear_term = self._compute_non_linear_term(a)
             derivative = -(self.L_G + self.sigma * self.D + self.K + u(t,a) * self.Psi) @ a - nonlinear_term - u(t,a) * self.b
             return self._real_wrapper(derivative)
-        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, args=(u,))
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, args=(u,), atol=1e-10, rtol=1e-10)
         sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
 
@@ -746,13 +746,13 @@ if __name__ == '__main__':
         Z2 = (2 * np.pi)**(alpha_param2 + beta_param2 - 1) * beta(alpha_param2, beta_param2)
         return 0.5*(x**(alpha_param1 - 1) * (2 * np.pi - x)**(beta_param1 - 1)) / Z1 + 0.5*(x**(alpha_param2 - 1) * (2 * np.pi - x)**(beta_param2 - 1)) / Z2
     
-    solver = McKeanVlasovSolver(L=100, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.0001, 
+    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.0001, 
                                 grad_alpha=nabla_alpha, state_weight=1000)
     plotter = McKeanVlasovPlotter(solver)
 
     plotter.plot_mu_bar_x()
 
-    plotter.plot_control_and_norm(t_max=5.0)
+    plotter.plot_control_and_norm(t_max=10.0)
 
     #plotter.plot_control_and_norm(t_max=0.5)
 
