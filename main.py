@@ -109,31 +109,12 @@ class McKeanVlasovSolver:
         c[0:project_on] = np.conjugate(c_fft[1:project_on+1][::-1])
         return c
 
-    def _integrate(self, f):
-        """Numerical integration over [0, d] using the trapezoidal rule."""
-        x_vals = np.linspace(0, self.d, 1000)
-        y_vals = f(x_vals)
-        return np.trapezoid(y_vals, x_vals)
-
     def _grad_finite_differences(self, F):
         """
         Compute the gradienf of the function F and returns a function.
         """
         h = 1e-6
         return lambda x: (F(x + h) - F(x - h)) / (2 * h)
-
-    def _convolve_W_phi(self, phi_j):
-        """Compute the convolution W * phi_j."""
-        def convolved_function(x):
-            result = np.zeros_like(x, dtype=np.complex128)
-            y_vals = np.linspace(0, self.d, 10000)
-            for idx, x_val in enumerate(x):
-                W_vals = self.W((x_val - y_vals) % self.d)
-                phi_vals = phi_j(y_vals)
-                integrand = W_vals * phi_vals
-                result[idx] = np.trapezoid(integrand, y_vals)
-            return result
-        return convolved_function
 
     def compute_bar_mu(self, min_fourier_samples=200):
         """Compute the approximation of bar_mu by solving the set of non-linear equations for a complex bar_mu_k."""
@@ -228,34 +209,6 @@ class McKeanVlasovSolver:
                 for m_idx in range(self.N):
                     if m_idx == k_idx - l_idx and abs(k_idx - l_idx) <= self.L:
                         self.T[k_idx, l_idx, m_idx] = 4*np.pi**2 / self.d**2 * (k_idx-self.L) * (m_idx - self.L) * self.w[m_idx]
-
-    def _compute_non_linear_term_old(self, a):
-        """
-        Computes sum_j sum_k a_j a_k T_ijk using the structure of T.
-        """
-        non_linear_term = np.zeros(self.N, dtype=np.complex128)
-        for k_idx in range(self.N):
-            for l_idx in range(self.N):
-                if abs(k_idx - l_idx) <= self.L:
-                    non_linear_term[k_idx] += a[l_idx] * a[k_idx-l_idx+self.L] * (k_idx - l_idx) * self.w[k_idx-l_idx+self.L]
-            non_linear_term[k_idx] *= 4*np.pi**2*(k_idx-self.L) / self.d**2
-        return non_linear_term
-
-    def _compute_non_linear_term_old_v2(self, a):
-        """
-        Computes sum_j sum_k a_j a_k T_ijk using the structure of T.
-        """
-        N = self.N
-        L = self.L
-        non_linear_term = np.zeros(N, dtype=np.complex128)
-        for k_idx in range(N):
-            l_idx_array = np.arange(max(0, k_idx - L), min(N, k_idx + L + 1))
-            shift = k_idx - l_idx_array + L
-            l_idx = l_idx_array
-            terms = a[l_idx] * a[shift] * (k_idx - l_idx) * self.w[shift]
-            non_linear_term[k_idx] = np.sum(terms)
-        non_linear_term *= self.k_vals * 4 * np.pi**2 / self.d**2
-        return non_linear_term
 
     def _compute_non_linear_term(self, a):
         """
@@ -576,6 +529,8 @@ class McKeanVlasovPlotter:
         ax2.set_ylabel('Control $u(t)$', fontsize=14)
         ax2.set_title('Control Function over Time')
 
+        print("MESSAGE - Total norm (controlled): {}, Total norm (uncontrolled): {}".format(self.solver.d*np.mean(y_norm), self.solver.d*np.mean(y_norm2)))
+
         # Display the plots
         plt.tight_layout()
         plt.show()
@@ -754,7 +709,7 @@ if __name__ == '__main__':
 
     plotter.plot_mu_bar_x()
 
-    plotter.plot_control_and_norm_linear(t_max=10.0)
+    plotter.plot_control_and_norm(t_max=10.0)
 
     #plotter.plot_control_and_norm(t_max=0.5)
 
