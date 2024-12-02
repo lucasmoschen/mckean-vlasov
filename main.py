@@ -253,7 +253,7 @@ class McKeanVlasovSolver:
             a = self._conjugate_wrapper(a)
             derivative = -(self.L_G + self.sigma * self.D + self.K) @ a
             return self._real_wrapper(derivative)
-        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, atol=1e-10, rtol=1e-10)
         sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
     
@@ -275,7 +275,7 @@ class McKeanVlasovSolver:
             nonlinear_term = self._compute_non_linear_term(a)
             derivative = -(self.L_G + self.sigma * self.D) @ a - nonlinear_term
             return self._real_wrapper(derivative)
-        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.mu0_projected), t_eval=t_eval)
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.mu0_projected), t_eval=t_eval, atol=1e-10, rtol=1e-10)
         sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
@@ -307,7 +307,7 @@ class McKeanVlasovSolver:
             a = self._conjugate_wrapper(a)
             derivative = -(self.L_G + self.sigma * self.D + self.K) @ a - u(t,a) * self.b + self.delta * a
             return self._real_wrapper(derivative)
-        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, args=(u,))
+        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, args=(u,), atol=1e-10, rtol=1e-10)
         sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
 
@@ -650,7 +650,7 @@ class McKeanVlasovPlotter:
         ani = FuncAnimation(fig, update, frames=len(t_values), init_func=init, blit=True, interval=200)
         plt.show()
 
-def profile_time_analyser():
+def profile_time_analyser(solver):
     
     profiler = cProfile.Profile()
     profiler.enable()
@@ -703,13 +703,16 @@ if __name__ == '__main__':
         Z2 = (2 * np.pi)**(alpha_param2 + beta_param2 - 1) * beta(alpha_param2, beta_param2)
         return 0.5*(x**(alpha_param1 - 1) * (2 * np.pi - x)**(beta_param1 - 1)) / Z1 + 0.5*(x**(alpha_param2 - 1) * (2 * np.pi - x)**(beta_param2 - 1)) / Z2
     
-    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0, min_fourier_samples=2000, delta=-0.0001, 
+    solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.0001, 
                                 grad_alpha=nabla_alpha, state_weight=1000)
-    plotter = McKeanVlasovPlotter(solver)
+    
+    #profile_time_analyser(solver)
 
-    plotter.plot_mu_bar_x()
+    #plotter = McKeanVlasovPlotter(solver)
 
-    plotter.plot_control_and_norm(t_max=10.0)
+    #plotter.plot_mu_bar_x()
+
+    #plotter.plot_control_and_norm(t_max=5.0)
 
     #plotter.plot_control_and_norm(t_max=0.5)
 
