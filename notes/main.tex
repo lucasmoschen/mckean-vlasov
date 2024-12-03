@@ -1,0 +1,929 @@
+\documentclass[a4paper, notitlepage, 10pt]{article}
+\usepackage{geometry}
+\usepackage{titling}
+\usepackage{authblk}
+
+% Page Layout Configuration
+\geometry{
+ a4paper,
+ total={170mm,257mm},
+ left=20mm,
+ top=20mm,
+}
+
+% Font and Typography
+\usepackage{setspace,relsize}
+\usepackage{moreverb}
+
+% Tables, Figures, and Listings
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usetikzlibrary{shapes}
+\usepackage{wrapfig}
+\usepackage{listings}
+
+% Mathematical Packages
+\usepackage{amsthm}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{bbm}
+
+% Text Formatting
+\usepackage{indentfirst}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{cancel}
+\usepackage[normalem]{ulem}
+
+% Hyperlinks and Color
+\definecolor{keywords}{RGB}{255,0,90}
+\definecolor{comments}{RGB}{0,0,113}
+\definecolor{red}{RGB}{160,0,0}
+\definecolor{green}{RGB}{0,150,0}
+
+\usepackage{hyperref}
+\usepackage{xcolor}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,      % Internal links
+    citecolor=blue,      % Citations
+    urlcolor=blue        % External hyperlinks
+}
+\usepackage[square,numbers]{natbib}
+
+% Code Listings Style
+\lstset{
+    language=Python, 
+    basicstyle=\ttfamily\footnotesize, 
+    keywordstyle=\color{blue},
+    commentstyle=\color{green},
+    stringstyle=\color{red},
+    showstringspaces=false
+}
+
+% Title and Authors
+\title{\Large \bfseries Mean Field Optimal Control Applied to McKean-Vlasov and Fokker-Planck Models}
+\date{\today}
+\author{Lucas Machado Moschen}
+\affil{\small Department of Mathematics, Imperial College London}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%% Mathematical Definitions %%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\bb}[1]{\boldsymbol{#1}}
+
+\newcommand{\ev}{\mathbb{E}}
+\newcommand{\var}{\operatorname{Var}}
+\newcommand{\cor}{\operatorname{Cor}}
+\newcommand{\cov}{\operatorname{Cov}}
+\newcommand{\almost}{\text{a.e. }}
+
+\newcommand{\ind}{\mathbbm{1}}
+
+% Theorem Environments
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{claim}{Claim}[section]
+\newtheorem{proposition}{Proposition}[section]
+\newtheorem{corollary}{Corollary}[section]
+\newtheorem{lemma}{Lemma}[section]
+
+\theoremstyle{definition}
+\newtheorem{example}{Example}[section]
+
+\newtheoremstyle{customstyle} % Define a custom style for assumptions
+  {10pt}      % Space above
+  {10pt}      % Space below
+  {\normalfont\setlength{\parindent}{0pt}\setlength{\leftskip}{2em}}
+  {}          % Indent amount
+  {\bfseries} % Theorem head font
+  {}          % Punctuation after theorem head
+  { }         % Space after theorem head
+  {\thmnumber{#2}}
+
+\theoremstyle{customstyle}
+\newtheorem{assumption}{}
+\renewcommand{\theassumption}{(A\arabic{assumption})} 
+
+\providecommand{\assumptionautorefname}{Assumption}
+\newcommand{\lemmaautorefname}{Lemma}
+\newcommand{\remarkautorefname}{Remark}
+\newcommand{\corollaryautorefname}{Corollary}
+\newcommand{\definitionautorefname}{Definition}
+\newcommand{\propositionautorefname}{Proposition}
+\renewcommand{\sectionautorefname}{Section}
+\renewcommand{\subsectionautorefname}{Subsection}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}[section]
+
+\newcommand{\LM}[1]{\textcolor{red}{#1}}
+\renewcommand{\citeauthoryear}[1]{\citeauthor{#1} (\citeyear{#1})}
+
+\begin{document}
+
+\maketitle
+
+%\tableofcontents
+
+\section{Introduction}
+
+\subsection{Mean-Field Optimal Control}
+
+Mean-field Optimal Control emerged from the work of \citeauthoryear{Fornasier2013}. 
+Its primary goal is to model and control systems with many interacting agents. 
+Mean-field models, which consider that each individual is influenced by the overall average behaviour of the entire population or the closest neighbours, describe the collective dynamics of such systems. 
+This concept draws from models of particle interaction in physics, that use binary forces to mimic the system behaviour.
+
+In contrast to Mean-field Games, where agents operate independently, in mean-field optimal control the agents are governed by a {\em centralized governor} or {\em controller}. 
+This approach has several applications across diverse fields: in economics, it can model market behaviour; in physics, it describes the dynamics of particle systems; in biology, it can capture collective animal behaviour; and in social science, it can represent opinion dynamics.
+Mean-field optimal control extends classical control theory to incorporate population-level interactions, resulting in optimal control problems constrained by partial differential equations (PDEs).
+
+When introduced by \citeauthoryear{Fornasier2013}, the authors demonstrated rigorously that the limit of a system of multiple agents, modelled by a finite-dimensional optimal control problem with ordinary differential equations (ODEs), leads to an infinite-dimensional optimal control problem constrained by a Vlasov-type PDE~\cite{Fornasier2013}. 
+The model governing the agents is expressed as
+\begin{equation}\label{eq:ode_model}
+    \begin{cases}
+        \dot{x}_i &= v_i \\
+        \dot{v}_i &= (H * \mu_N)(x_i, v_i) + u(t,x_i,v_i), \quad i=1,\dots,N, \quad t \in [0,T],
+    \end{cases}
+\end{equation}
+where 
+\[
+\mu_N = \frac{1}{N} \sum_{j=1}^N \delta_{(x_i,v_i)}
+\]
+is the empirical measure of the positions and velocities of the $N$ agents in $\R^{2d}$.
+The function $u$ represents the control exerted over all agents from a central authority, which aims to minimize the cost functional
+\[
+J^{N}(u) := \int_0^T \int_{\R^{2d}} (L(x,v,\mu_N) + \psi(u(t,x,v)) \, d\mu_N(t,x,v) \, dt,
+\]
+where $\psi: \R^d \to [0, \infty)$ is a convex function, and $u$ is a Carathéodory function with sublinear growth in the variables $x$ and $v$.
+
+This review focuses on the following topics in the literature:
+
+\begin{itemize}
+    \item Existence and uniqueness results for McKean-Vlasov and Fokker-Planck models.
+    \item The well-posedness of these models.
+    \item Numerical methods for mean-field control problems.
+    \item Extensions of Pontryagin's Maximum Principle to mean-field settings.
+    \item The integration of machine learning techniques in mean-field optimal control.
+\end{itemize}
+
+Another interesting feature that we might want to go further is the relation between Mean-field Games and control of McKean-Vlasov equations.
+The ideas come from~\citeauthoryear{carmona2013control} who compared both methods.
+In particular, they explain the difference between the nature and solutions to the two approaches by investigating the corresponding forward-backward systems.
+
+\section{Mathematical Background}
+
+\subsection{Convergence}
+
+In~\cite{Fornasier2013}, they theoretically prove that~\eqref{eq:ode_model} converges for $N \to \infty$ to a solution of the PDE constrained problem
+\[
+\frac{\partial \mu}{\partial t} + v \cdot \nabla_x \mu = \nabla_v \cdot [(H * \mu + u)\mu],
+\]
+with cost functional 
+\[
+J(u) := \int_0^T \int_{\R^{2d}} (L(x,v,\mu) + \psi(u(t,x,v))) \, d\mu(t,x,v) \, dt,
+\]
+where $\mu$ is a probability measure valued weak solution to the PDE.
+
+\subsection{The mean-field models}
+
+By the McKean-Vlasov equation, we may also mean the stochastic differential equation (SDE)
+\[
+dX_t = b(t, X_t, \mathbb{P}_{X_t}) dt + \sigma(t, X_t, \mathbb{P}_{X_t}) dW_t,
+\]
+which describes the dynamics of an average particle under a drift term $b$, a diffusion term $\sigma$, a Brownian motion $W_t$, and a population probability distribution $\mathbb{P}_{X_t}$.
+
+Alternatively, the Fokker-Planck equation describes the evolution of the probability density function $\rho(t, x)$ of a stochastic process $X_t$:
+\[
+\frac{\partial \rho}{\partial t} = -\nabla_x \cdot [b(t, x, \rho) \rho] + \frac{1}{2} \nabla_x^2 : [\sigma \sigma^\top (t, x, \rho) \rho].
+\]
+
+This PDE is the macroscopic counterpart to the microscopic dynamics described by the SDE.
+
+\subsection{Stochastic interactions}
+
+By extending model~\eqref{eq:ode_model} to include random fluctuations, we consider the model. 
+\[
+dX_t^i = - \nabla H^N(X_t^1, \dots, H_t^N) \, dt + \sqrt{2\sigma} \, dB_t^i. 
+\]
+The distribution of the $N$-particle positions satisfies a Fokker-Planck equation given by
+\[
+\partial_t \rho^N_t = \nabla_N \cdot \left(\nabla H^N \rho_t^N \right) + \sigma \Delta \rho_t^N,
+\]
+where $\sigma$ is the system's temperature.
+By assuming the exchangeability of the particles, we get the McKean-Vlasov PDE.
+\[
+\partial_t \rho = \nabla \cdot \left(\rho[(\nabla W * \rho) + \nabla V]\right) + \sigma \Delta \rho
+\]
+
+\section{Literature Review}
+
+\subsection{Existence and Uniqueness Results}
+
+\subsubsection{Analytical Techniques}
+
+The existence and uniqueness of solutions to McKean-Vlasov equations and associated control problems are established. 
+
+\subsection{Well-posedness Analysis}
+
+\subsubsection{Theoretical Developments}
+
+\subsubsection{Machine Learning Integration}
+
+\begin{itemize}
+    \item \textbf{Neural Lyapunov Functions}: The paper from \citeauthoryear{gaby2022lyapunov} introduces a deep neural network, called {\em Lyapunov-Net}, to approximate Lyapunov functions for high-dimensional systems. 
+    These functions can then be used to check the stability of systems and must meet two conditions: they must be positive definite and have a negative orbital derivative~\cite{gaby2022lyapunov}.
+    The main goal of their work is to make a method that works better and faster than older methods, especially when dealing with systems that have many dimensions. 
+
+    A Lyapunov-Net is defined using two functions, where $V_\theta(x) = |\phi_\theta(x) - \phi_\theta(0)| + \bar{\alpha} \|x\|$. 
+    This setup ensures $V_\theta$ is always positive definite. The network is trained to minimize a risk function:
+    \[
+    \ell(\theta) = \int_{\Omega} (DV_{\theta}(x) \cdot f(x) + \gamma \|x\|)_+^2 \, dx,
+    \]
+    where $\gamma$ is a chosen parameter and $\Omega$ represents the space where the problem exists. 
+    The function focuses on making sure that the $D V_{\theta}$ along the system trajectories is negative, which is required for stability. 
+    For this integral, Monte Carlo integration was performed.
+    
+    The paper concludes that Lyapunov-Net is better at approximating Lyapunov functions than current methods and does this more efficiently. 
+    However, there are some issues near points of equilibrium due to the risk function used. 
+    Future research may look into better network designs, more detailed theoretical support, and applying the method to more complex systems. 
+    This could help us learn more widely in system stability and control fields.
+
+    \item \textbf{Stability Analysis via Data-Driven Methods}: Machine learning models analyze the stability of equilibria using simulation data.
+\end{itemize}
+
+
+\subsection{Numerical Methods for Mean Field Optimal Control}
+
+\subsubsection{Classical Numerical Methods}
+
+Traditional numerical methods for MFOC involve discretization techniques for PDEs and SDEs, such as {\em finite difference methods}, {\em finite element methods}, {\em spectral methods}, and {\em Monte Carlo simulations} of paths.
+
+\subsubsection{Machine Learning Approaches}
+
+Recent research has explored the use of machine learning to overcome the limitations of classical methods: Physics-informed neural networks (PINN), Reinforcement Learning, Generative Models for Distribution Approximation, etc.
+
+\subsection{Optimality conditions}
+
+\subsubsection{Classical Applications}
+
+PMP has been extended to mean field models, leading to necessary conditions that involve both the state and the distribution~\cite{aronna2021}
+
+\subsubsection{Machine Learning Enhancements}
+
+\begin{itemize}
+    \item \textbf{Neural Network Approximation of Adjoint States}: Neural networks approximate the adjoint processes in the stochastic PMP.
+\end{itemize}
+
+\subsection{Open questions}
+
+\begin{itemize}
+    \item \textbf{Curse of Dimensionality}: Classical numerical methods struggle with high-dimensional state spaces.
+    \item \textbf{Machine Learning and control}: Deep learning models can handle high-dimensional inputs, mitigating the curse of dimensionality.
+    \item Understanding the basis of attractions of the McKean-Vlasov equation.
+\end{itemize}
+
+\section{Conclusion}
+
+\subsection{Summary of key points}
+
+\subsection{Gaps in the literature}
+
+\subsection{Suggestions for future research from the papers}
+
+\subsection{Final remarks}
+
+\newpage
+
+\section{Problem settings}
+
+Consider a system with \( N \) exchangeable agents, each located at position \( x_t^i \) (for \( i = 1, \dots, N \)) at time \( t \), evolving according to the following equation:
+\[
+dx_t^i = - \left( \nabla V(x_t^i) + \frac{1}{N} \sum_{j=1}^N \nabla W(x_t^i - x_t^j) \right) dt + \sqrt{2 \sigma} \, dB_t^i,
+\]
+where \( V \) represents a confining potential that influences each agent’s position, \( W \) is a communication potential that models the interaction between agents, the diffusion coefficient \( \sigma \) denotes the system's temperature, and \( \{B_t^i\}_{t \ge 0} \) are independent standard Brownian motions associated with each agent, introducing stochastic fluctuations in the system.
+This system evolves within a torus, ensuring periodic boundary conditions on agent positions.
+
+Under some regularity conditions, the marginal distribution of the position of a single agent converges as \( N \to \infty \) to a probability density \( \mu \) that satisfies the McKean–Vlasov equation
+\[
+\partial_t \mu = \nabla \cdot \left( \mu[(\nabla W * \mu) + \nabla V] \right) + \sigma \Delta \mu,
+\]
+where \( \mu \) is defined on the torus $\Omega$ with periodic boundary conditions.
+The initial distribution of \( \mu \) is given by \( \mu(\cdot, 0) = \mu_0 \). 
+Here, the interaction term \( (W * \mu)(x) \) is defined as
+\[
+(W * \mu)(x) := \int_{\Omega} W(x - y) \, \mu(y) \, dy
+\]
+over the torus, representing the convolution of the communication function \( W \) with the density \( \mu \).
+
+As studied by \citeauthoryear{Carrillo2020}, the McKean–Vlasov equation on the torus exhibits global asymptotic stability of solutions towards a homogeneous steady state. 
+Additionally, the equation allows for nontrivial solutions that can exhibit an infinite number of bifurcations, depending on the interaction potential. 
+The authors establish sufficient conditions under which both continuous and discontinuous phase transitions can occur~\cite{Carrillo2020}.
+In their analysis, the authors apply these theoretical results to a range of interaction potentials used in models like the noisy Kuramoto, Keller–Segel, and noisy Hegselmann-Krausse models, exploring their implications for synchronization, chemotaxis, and opinion dynamics respectively.
+
+Suppose that $W$ is convex, even, and with polynomial growth and that $V$ is uniformly convex, i.e., for some $\beta > 0$, $\nabla^2 V(x) - \beta I$ is a positive-semidefinite matrix.
+Under these conditions, \citeauthoryear{malrieu2001logarithmic} demonstrates that there exist a unique function $\bar{\mu}$ and a constant $K > 0$ such that for all $t >0$, $\|\mu(t,\cdot) - \bar{\mu}\|_{L^1} \le Ke^{-\beta t/2}$, where $\bar{\mu}$ is the unique stationary solution satisfying the detailed balance condition
+\[
+\bar{\mu}(x) = \frac{1}{Z} e^{-\frac{1}{\sigma}\left(V(x) - W * \bar{\mu}(x)\right)}
+\]
+with $Z = \int_{\Omega} e^{-\frac{1}{\sigma}\left(V(y) - W * \bar{\mu}(y)\right)} \, dy$.
+
+We are interested in {\bf controlling} the dynamics described by this equation to accelerate the convergence of $\mu(t,\cdot)$ to the equilibrium of the system, especially in the cases where $\beta$ is small.
+We then take 
+\[
+V(x,t) = G(x) + \sum_{j=1}^{m} \alpha_j(x) u_j(t)
+\]
+for uniformly convex functions $G$ and $m$ functions $\alpha_j$.
+The functions $\alpha_j$ act as a control shape function determining the regions in the space where the time-dependent control function $u_j$ will influence.
+We then introduce the controlled dynamics 
+\begin{equation}
+    \label{eq:controlled_mckean_vlasov}
+    \partial_t \mu = \nabla \cdot \left( \mu \left[(\nabla W * \mu) + \nabla G + \sum_{j=1}^m u_j \nabla \alpha_j \right] \right) + \sigma \Delta \mu.
+\end{equation}
+This formulation is similar to~\cite{Breiten2018}, in which they consider the Fokker-Planck equation as the state dynamics.
+\LM{The function $u$ needs to be chosen to guarantee that $\bar{\mu}$ still is the unique equilibrium of the system}.
+
+\LM{XXX: discuss the well-posedness of the equation, (I) existence and uniqueness of well-behaved solutions; (II) properties that $\mu$ is a PDF}.
+\LM{What guarantees that for any $u$, there will be only one equilibrium? Is it enough to have $u \to 0$? In which sense?}
+
+The abstract formulation of equation~\eqref{eq:controlled_mckean_vlasov} using operators is
+\[
+\dot{\mu} = \mathcal{A} \mu + \sum_{j=1}^m u_j(t) \mathcal{N}_j \mu +  \mathcal{W}(\mu),
+\]
+where $\mathcal{A} \mu = \nabla \cdot (\mu \nabla G + \sigma \nabla \mu)$, $\mathcal{N}_j \mu = \nabla \cdot (\mu \nabla \alpha_j)$, and $\mathcal{W}(\mu) = \nabla \cdot \left( \mu \left( \nabla W * \mu \right) \right)$ captures the nonlinear and non-local interaction term involving the convolution \(\nabla W * \mu\).
+
+Define $y = \mu - \bar\mu$ so that we have
+\begin{equation}
+    \label{eq:abstract_formulation_mckean_vlasov}
+    \dot{y} = \mathcal{A} y + \mathcal{W}(y+\bar{\mu}) - \mathcal{W}(\bar{\mu}) + \sum_{j=1}^m u_j(t) \mathcal{N}_j y + \mathcal{B}_j u_j(t),
+\end{equation}
+where $\mathcal{B}_j = \mathcal{N}_j \bar\mu$.
+
+To compute the linearised version of equation~\eqref{eq:abstract_formulation_mckean_vlasov}, the first step is to linearized $\mathcal{W}$ around $\bar{\mu}$ through its Fréchet derivative. 
+Notice that 
+\[
+\begin{split}
+    \mathcal{W}(y+\bar{\mu}) - \mathcal{W}(\bar{\mu}) &= \nabla \cdot \left[(y+\bar\mu)(\nabla W * y + \nabla W * \bar\mu) - \bar\mu (\nabla W * \bar{\mu})\right] \\
+    &= \nabla \cdot [(y+\bar\mu)(\nabla W * y) + y(\nabla W * \bar{\mu})] \\
+    &= \nabla \cdot [\bar\mu(\nabla W * y) +  y(\nabla W * \bar{\mu})] + \nabla \cdot [y(\nabla W * y)] \\
+    &\approx \nabla \cdot [\bar\mu(\nabla W * y) +  y(\nabla W * \bar{\mu})] \\ 
+    &=: \mathcal{D}_W y,
+\end{split}
+\]
+where $\mathcal{D}_W y$ is the functional derivative of $\mathcal{W}$.
+The linearized system is then
+\begin{equation}
+    \label{eq:linearized_abstract_mckean_vlasov}
+    \dot{y} = (\mathcal{A} + \mathcal{D}_W + \delta I)y + \sum_{j=1}^m \mathcal{B}_j u_j(t),
+\end{equation}
+where we include a parameter $\delta > 0$ to guarantee that all eigenvalues are negative, and $\mathcal{B} = (\mathcal{B}_1, \dots, \mathcal{B}_m)$ and $u(t) = (u_1(t), \dots, u_m(t))$. 
+We formulate this as an optimization problem where the objective is to minimize the integral of the squared \(L^2\) norm of \(y\) over time, together with the squared magnitude of the control function \(u(t)\), explicitly stated as
+\begin{equation}
+    \label{eq:quadratic_cost_functional}
+    \min_u \frac{1}{2}\int_0^{\infty} \left( \langle y(t), \mathcal{M} y(t) \rangle_{L^2(\Omega)} + \|u(t)\|_{2}^2\right) dt,
+\end{equation}
+where $\mathcal{M}$ is a self-adjoint nonnegative operator.
+
+The cost functional written in equation~\eqref{eq:quadratic_cost_functional} is associated to the {\em Ricatti equation} in the weak sense
+\[
+\langle (\mathcal{A} + \mathcal{D}_W + \delta I)^* \Pi y_1, y_2 \rangle_{L^2(\Omega)} + \langle \Pi (\mathcal{A} + \mathcal{D}_W + \delta I)y_1, y_2 \rangle_{L^2(\Omega)} - \langle \mathcal{B}^* \Pi y_1, \mathcal{B}^* \Pi y_2 \rangle_{L^2(\Omega)} + \langle \mathcal{M} y_1, y_2 \rangle_{L^2(\Omega)}= 0,
+\]
+for all functions $y_1, y_2$ in the domain of $\mathcal{A}$.
+If $(\mathcal{A} + \mathcal{D}_W, \mathcal{B})$ is $\delta$-stabilizable (\LM{XXX: this means that there exists a linear feedback control such that the resulting system will have with eigenvalues with real parts being at most $-\delta$.}), there exists a unique self-adjoint $\Pi$ such that $\mathcal{A} + \mathcal{D}_W + \delta I - \mathcal{B} \mathcal{B}^* \Pi$ generates an exponentially stable semigroup.
+Additionally, it suggests that we need a particular choice of $\alpha$ so that the pair is $\delta$-stabilizable for $\delta \ge -\rho(\mathcal{A}^*)$.
+\LM{XXX: we need to find such a condition for our case, I think it will be less trivial}.
+We then apply to equation~\eqref{eq:abstract_formulation_mckean_vlasov} the feedback law $u = -\mathcal{B}^* \Pi y$. \LM{XXX: we should then study the local stability here.}
+
+\subsection{Numerical Approach: Spectral Method and Riccati equation}
+
+To numerically solve the controlled McKean–Vlasov equation~\eqref{eq:controlled_mckean_vlasov}, we employ a spectral method due to its accuracy and efficiency for periodic boundary conditions on the torus. 
+Given that the domain is periodic, Fourier series are a natural choice for the basis functions. 
+To obtain the control function, after discretizing the linearized system using the spectral method, we will have a finite-dimensional linear-quadratic control problem which will provide, through a Riccati equation, an optimal feedback control formula.
+We then will plug this control into the original non-linear equation and solve the system of ODEs, which will lead to the approximated controlled McKean–Vlasov equation. 
+\LM{We should obtain some approximation results such as in \url{https://core.ac.uk/download/pdf/82197863.pdf}. 
+For instance, they demonstrated that the approximated feedback control matrix converges to the abstract operator.}
+
+We approximate \( y(x,t) \) and \( \bar{\mu}(x) \) using truncated Fourier series expansions:
+\[
+y(x,t) \approx \hat{y}_L(x,t) := \sum_{k=-L}^{L} a_k(t) \phi_k(x), \quad \bar{\mu}(x) \approx \hat{\mu}_L(x) := \sum_{k=-L}^{L} \bar{\mu}_k \phi_k(x),
+\]
+where \(\phi_k(x)\) are the Fourier modes, \( k \in \mathbb{Z} \), and \( L \) is a truncation parameter that determines the number of modes used in the approximation.
+For instance, in one dimension, when the torus is $[0,2\pi)$, we can consider the functions $\phi_k(x) = e^{ikx}$ with $a_{-k} = \overline{a_k}$, or purely sines and cosines.
+Our goal is to project the controlled McKean–Vlasov equation~\eqref{eq:controlled_mckean_vlasov} onto the finite-dimensional subspace spanned by the chosen Fourier modes, resulting in a system of $2L+1$ ordinary differential equations (ODEs) for the coefficients \( a_k(t) \).
+
+First, we compute $\hat\mu_L$ and project the initial condition on the Fourier basis.
+We approximate the equation that $\bar\mu$ satisfies, leading to
+\[
+\sum_{k=-L}^{L} \bar\mu_k \phi_k(x) = \frac{1}{\hat{Z}} e^{-\sigma^{-1}G(x) - \sigma^{-1}\sum_k \bar\mu_k W * \phi_k(x)},
+\]
+for some constant $\hat{Z}$ that normalizes $\bar\mu$ to a probability density.
+Integrating against $\phi_i^*$ we obtain,
+\[
+\bar\mu_i = \frac{1}{\hat{Z}\| \phi_i \|^2} \int_{\Omega} e^{-\sigma^{-1}G(x) - \sigma^{-1}\sum_{k=-L}^L \bar\mu_k W * \phi_k(x)} \phi_i^*(x) \, dx,
+\]
+which results in a set of $2L+1$ non-linear equations.
+For the initial condition, set
+\[
+\mu_0(x) \approx \hat\mu_0(x) := \sum_{k=-L}^L \bar \mu_{k,0} \phi_k(x) \implies \bar\mu_{i,0} = \frac{1}{\|\phi_i\|^2}\int_{\Omega} \mu_0(x) \phi_i^*(x) \, dx. 
+\]
+
+Starting with the discretisation of the linearized McKean–Vlasov equation as outlined in equation~\eqref{eq:linearized_abstract_mckean_vlasov}, we utilize the Fourier basis functions as test functions. 
+This yields, for each $-L \le i \le L$, the discretized version of the linearized equation:
+\[
+\begin{split}
+    \sum_{k=-L}^{L} \dot{a}_k(t) \int_{\Omega} \phi_k(x) \phi_i^*(x) \, dx &= -\sum_{k=-L}^{L} a_k(t) \left( \int_{\Omega} \phi_k(x) \nabla G(x) \cdot \nabla \phi_i^*(x)  + \sigma \nabla \phi_k(x) \cdot \nabla \phi_i^*(x) \, dx \right) \\
+    - \sum_{k=-L}^{L} &a_k(t) \left( \int_{\Omega} \hat\mu_L(x)( \nabla W * \phi_k(x) ) \cdot \nabla \phi_i^*(x) + \phi_k(x) (\nabla W * \hat\mu_L(x)) \cdot \nabla \phi_i^*(x) \, dx \right) \\ 
+    +\delta \sum_{k=-L}^{L} &a_k(t) \int_{\Omega} \phi_k(x) \phi_i^*(x) \, dx - \sum_{j=1}^m u_j(t) \int_{\Omega} \hat\mu_L(x) \nabla \alpha_j(x) \cdot \nabla \phi_i^*(x) \, dx. 
+\end{split}
+\]
+
+The above system can be written in matrix form as 
+\[
+\dot{a}(t) = -\Phi^{-1}(L_G + \sigma D + K - \delta \Phi) a(t) + \Phi^{-1}B u(t), 
+\]
+with $\Phi_{ik} = \langle \phi_k, \phi_i \rangle$, $[L_G]_{ik} = \langle \phi_k \nabla G, \nabla \phi_i \rangle$, $D_{ik} = \langle \nabla \phi_k, \nabla \phi_i \rangle$, $K_{ik} = \langle \hat\mu_L(\nabla W * \phi_k) + \phi_k(\nabla W * \hat\mu_L), \nabla \phi_i \rangle$, and $B_{ij} = -\langle \hat\mu_L\nabla \alpha_j, \nabla \phi_i \rangle$.
+By choosing an orthonormal basis, we can set $\Phi = I$ and $A = -(L_G + \sigma D + K - \delta \Phi)$.
+Moreover, the cost functional reads as 
+\[
+\frac{1}{2} \int_0^{\infty} a(t)^T M a(t) + \|u(t)\|_2^2 \, dt,
+\]
+where $M_{ij} = \langle \phi_i, \mathcal{M} \phi_j \rangle$.
+The associated Riccati equation is, then, 
+\[
+A^* \hat\Pi + \hat\Pi A - \hat\Pi B B^* \hat\Pi + M = 0,
+\]
+which can be solved numerically, leading to the feedback control $u(t) = -B^* \Pi a(t)$.
+
+We also perform the same operation for the non-linear equation~\eqref{eq:abstract_formulation_mckean_vlasov} with $u(t)$ in the feedback form.
+This leads to 
+\[
+\begin{split}
+    \sum_{k=-L}^{L} \dot{a}_k(t) \int_{\Omega} \phi_k(x) \phi_i^*(x) \, dx &= -\sum_{k=-L}^{L} a_k(t) \left( \int_{\Omega} \phi_k(x) \nabla G(x) \cdot \nabla \phi_i^*(x)  + \sigma \nabla \phi_k(x) \cdot \nabla \phi_i^*(x) \, dx \right) \\
+    - \sum_{k=-L}^{L} &a_k(t) \left( \int_{\Omega} \hat\mu_L(x)( \nabla W * \phi_k(x) ) \cdot \nabla \phi_i^*(x) + \phi_k(x) (\nabla W * \hat\mu_L(x)) \cdot \nabla \phi_i^*(x) \, dx \right) \\
+    - \sum_{k=-L}^{L} &\sum_{l=-L}^{L} a_k(t) a_l(t) \int_{\Omega} \phi_k(x)( \nabla W * \phi_l(x)) \cdot \nabla \phi_i^*(x) \, dx \\
+    + \sum_{j=1}^m (B^* \Pi &a(t))_j \sum_{k=-L}^{L} a_k(t) \int_{\Omega} \phi_k(x) \nabla \alpha_j(x) \cdot \nabla \phi_i^*(x) \, dx \\
+    + (B^* \Pi &a(t))_j \int_{\Omega} \hat\mu_L(x) \nabla \alpha_j(x) \cdot \nabla \phi_i^*(x) \, dx. 
+\end{split}
+\]
+The above system can be rewritten as 
+\[
+\dot{a}(t) = -(L_G + \sigma D + K) a(t) - T : (a(t) \otimes a(t)) + \sum_{j=1}^m (B_j^* \Pi a(t)) \Psi^{(j)} a(t)  -  B B^* \Pi a(t),
+\]
+where $T_{ikl} = \langle \phi_k \nabla W * \phi_l, \nabla \phi_i \rangle$, $\Psi_{ik}^{(j)} = \langle \phi_k \nabla \alpha_j, \nabla \phi_i \rangle$, $B_j$ is the $j$-th column of $B$,  and $D:C$ is a double contraction between the tensors $D$ and $C$.
+By solving this system of ODEs with $a_k(0) = \bar\mu_{i,0}$, we obtain an approximation for the controlled McKean-Vlasov equation.
+
+\subsubsection{1-D case}
+
+In one dimension, over the interval $[0,d]$ with periodic boundary conditions, consider the orthonormal basis
+\[
+\phi_k(x) = \frac{1}{\sqrt{d}} e^{\frac{2\pi}{d}i k x}.
+\]
+
+An easy way to project a function on the Fourier basis uses the so-called Fast Fourier Transform.
+If over an interval $[0,d]$,
+\[
+g(x) = \sum_{k=-L}^L c_k \phi_k(x),
+\]
+then we know that
+\[
+c_k = \sqrt{\frac{1}{d}} \int_0^d f(x) e^{-\frac{2\pi}{d} k x i} \, dx \approx \frac{d}{N\sqrt{d}} \sum_{j=0}^{N-1} f(t_j) e^{-\frac{2\pi}{d} k t_j i}
+\]
+for points $0 \le t_0 < t_1 < \cdots < t_{N-1} \le d$. 
+We consider the mid interval points $t_j = (j+1/2) d/N$, so
+\[
+\begin{split}
+    c_k &\approx \frac{\sqrt{d}}{N} \sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} k (j+1/2) i} \\
+    &= \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i}\sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} j k i} \\
+    &=  \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i} FFT_k[(f_0, \dots, f_{N-1})],
+\end{split}
+\]
+where $f_j = f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)$, for $k \ge 0$.
+For $k < 0$, notice that $c_k = \overline{c_{-k}}$.
+
+Let us calculate $W * \phi_k$ for a periodic function $W$.
+Write 
+\[
+W(x) = \sum_{j=-\infty}^{\infty} w_j \phi_j (x).
+\]
+Then,
+\[
+W * \phi_k(x) = \sum_{j=-\infty}^{\infty} w_j \int_{\Omega} \phi_j(x-y) \phi_k(y) \, dy = \sum_{j=-\infty}^{\infty} w_j  \phi_j * \phi_k(x) = \sqrt{d} w_k \phi_k(x)
+\]
+where $w_k$ can be computed similarly using the FFT, as for $\mu_0$.
+
+Using this fact to calculate $\bar\mu_i$,
+\[
+\bar\mu_i = \frac{1}{\hat{Z}} \int_{\Omega} \exp\left\{-\frac{G(x)}{\sigma} - \frac{\sqrt{d}}{\sigma}\sum_{k=-L}^L \bar\mu_k w_k \phi_k(x)\right\} \phi_i^*(x) \, dx.
+\]
+
+Let us find a better way to compute $L_G$.
+Notice that \( \phi_k'(x) = \frac{2\pi}{d} ik \phi_k(x) \).
+By definition,
+\[
+[L_G]_{kl} = \int_{\Omega} \phi_l(x) G'(x) \overline{\phi_k'(x)} \,dx = -\frac{2\pi}{d} i k \int_{\Omega} \phi_l(x) G'(x) \phi_{-k}(x) \,dx.
+\]
+Write 
+\[
+G(x) = \sum_{j=-\infty}^{\infty} g_j \phi_j(x) \implies G'(x) = \sum_{j=-\infty}^{\infty} g_j \phi_j'(x) = \sum_{j=-\infty}^{\infty} \frac{2\pi}{d} ij g_j \phi_j(x).
+\]
+Then, we get that 
+\[
+\begin{split}
+    [L_G]_{kl} &= \frac{4\pi^2}{d^2} k \sum_{j=-\infty}^{\infty} j g_j \int_{\Omega} \phi_l(x) \phi_j(x) \phi_{-k}(x) \, dx \\
+    &= \frac{4\pi^2}{d^2\sqrt{d}} k  \sum_{j=-\infty}^{\infty} j g_j \int_{\Omega} \frac{1}{\sqrt{d}} e^{\frac{2\pi}{d} i (l+j-k)x} \, dx \\
+    &= \frac{4\pi^2}{d^2\sqrt{d}} k (k-l) g_{k-l}.
+\end{split}
+\]
+
+We move to compute matrix $D$, which is given by
+\[
+D_{kl} = \int_{\Omega} \phi_l'(x) \overline{\phi_k'(x)} \, dx = \frac{4 \pi^2}{d^2} kl \int_{\Omega} \phi_{l}(x) \phi_{-k}(x) \, dx = \frac{4 \pi^2}{d^2} kl \mathbbm{1}_{k=l}.
+\]
+
+Let us do this for matrix $K$.
+By definition, 
+\[
+\begin{split}
+    K_{kl} &= \int_{\Omega} [\bar{\mu}_L(x) (W' * \phi_l(x)) + \phi_l(x) (W'*\bar\mu_L(x))] \overline{\phi_k'(x)} \, dx \\
+    &= \sum_{j=-L}^{L} \bar\mu_j \int_{\Omega} [\phi_j(x) (W' * \phi_l(x)) + \phi_l(x) (W'* \phi_j(x))] \overline{\phi_k'(x)} \, dx \\
+    &= \sum_{j=-L}^{L} \bar\mu_j \int_{\Omega} [\phi_j(x) \sqrt{d} w_l' \phi_l(x) + \phi_l(x) \sqrt{d} w_j' \phi_j(x) ] \overline{\phi_k'(x)} \, dx \\
+    &= \frac{4\pi^2}{d\sqrt{d}} k \sum_{j=-L}^{L} \bar\mu_j ( l w_l + j w_j) \int_{\Omega} \phi_j(x) \phi_l(x) \phi_{-k}(x) \, dx \\
+    &= \frac{4\pi^2}{d^2} k \sum_{j=-L}^{L} \bar\mu_j ( l w_l + j w_j) \int_{\Omega} \frac{1}{\sqrt{d}}e^{\frac{2\pi}{d}i(j+l-k)x} \, dx \\
+    &= \frac{4\pi^2}{d^2} k \bar\mu_{k-l}(l w_l + (k-l)w_{k-l})\mathbbm{1}_{|k-l|\le L} ,
+\end{split}
+\]
+where we used that
+\[
+W'(x) = \sum_{j=-\infty}^{\infty} w_j \phi_j'(x) = \sum_{j=-\infty}^{\infty} \frac{2\pi}{d} ij w_j \phi_j(x). 
+\]
+
+The next step is to calculate the matrix $T$.
+We have
+\[
+\begin{split}
+    T_{klm} &= \langle \phi_l W' * \phi_m, \phi_k' \rangle \\
+    &= \frac{2\pi}{\sqrt{d}} im w_m \langle \phi_l \phi_m, \phi_k' \rangle \\
+    &= \frac{4\pi^2}{d\sqrt{d}} k m w_m \int_{\Omega} \phi_l(x) \phi_m(x) \phi_{-k}(x) \, dx \\
+    &= \frac{4\pi^2}{d^2} k m w_m \mathbbm{1}_{m=k-l} \mathbbm{1}_{|k-l| \le L}.     
+\end{split}
+\]
+Given the sparsity of matrix $T$, we can compute $T : (a \otimes a)$ without storing $T$.
+
+Notice that, for each $k$, 
+\[
+\sum_{l=-L}^{L} \sum_{m=-L}^{L} a_l(t) a_m(t) T_{klm} =  \frac{4\pi^2}{d^2} k \sum_{l=\max(k-L, -L)}^{\min(k+L, L)} a_l(t) a_{k-l}(t) (k-l) w_{k-l} =: T_k(a,a).
+\]  
+
+Then, we want to solve, for each $i$, and using the properties we discussed about this basis of functions,
+\[
+\begin{split}
+    \dot{a}_i(t)  &= -\sum_{k=-L}^{L} a_k(t) (L_{ik} + \sigma D_{ik} + K_{ik}) - T_i(a,a).
+\end{split}
+\]
+
+When including the control, notice that tensor $\Psi^{(j)}$ is similar to $L_G$ by replacing $G$ per $\alpha_j$ for each $j=1, \dots, m$. 
+All the calculations remain the same.
+For the operator $\mathcal{B}$, we need to apply $\mathcal{N}$ to $\bar\mu$.
+When discretizing, we get 
+\[
+B_{kj} = -\int_{\Omega} \hat\mu_L(x) \alpha_j'(x) \overline{\phi_k'(x)} \, dx = -\sum_{l=-L}^L \bar\mu_l \int_{\Omega} \phi_l(x) \alpha_j'(x) \overline{\phi_k'(x)} \, dx \implies B_j = -\Psi^{(j)} \bar\mu.
+\]
+
+Another possibility is that $\alpha_j$ is not a periodic function, but $\nabla \alpha$ is a constant function.
+In this case,
+\[
+\Psi_{kl}^{(j)} = \langle \phi_l, \phi_k' \rangle = \frac{2\pi}{d} ik\langle \phi_l, \phi_k \rangle = \frac{2\pi}{d} ik \mathbbm{1}_{k=l}.
+\]
+
+
+\subsubsection{2-D case}
+
+In two dimensions, over the rectangle $[0,d_1] \times [0,d_2]$ with periodic boundary conditions, consider the orthonormal basis
+\[
+\phi_{k,l}(x,y) = \frac{1}{\sqrt{d_1 d_2}} e^{\frac{2\pi}{d_1}i k x} e^{\frac{2\pi}{d_2}i ly}.
+\]
+
+Consider a function $g$ written in this basis. 
+So 
+\[
+g(x,y) = \sum_{k=-L}^L \sum_{l=-L}^L c_{k,l} \phi_{k,l}(x,y)
+\]
+over $[0,d_1] \times [0,d_2]$.
+We know that
+\[
+c_{k,l} = \sqrt{\frac{1}{d_1 d_2}} \int_0^d f(x) e^{-\frac{2\pi}{d} k x i} \, dx \approx \frac{d}{N\sqrt{d}} \sum_{j=0}^{N-1} f(t_j) e^{-\frac{2\pi}{d} k t_j i}
+\]
+for points $0 \le t_0 < t_1 < \cdots < t_{N-1} \le d$. 
+We consider the mid interval points $t_j = (j+1/2) d/N$, so
+\[
+\begin{split}
+    c_k &\approx \frac{\sqrt{d}}{N} \sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} k (j+1/2) i} \\
+    &= \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i}\sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} j k i} \\
+    &=  \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i} FFT_k[(f_0, \dots, f_{N-1})],
+\end{split}
+\]
+where $f_j = f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)$, for $k \ge 0$.
+For $k < 0$, notice that $c_k = \overline{c_{-k}}$.
+
+Let us calculate $W * \phi_k$ for a periodic function $W$.
+Write 
+\[
+W(x) = \sum_{j=-\infty}^{\infty} w_j \phi_j (x).
+\]
+Then,
+\[
+W * \phi_k(x) = \sum_{j=-\infty}^{\infty} w_j \int_{\Omega} \phi_j(x-y) \phi_k(y) \, dy = \sum_{j=-\infty}^{\infty} w_j  \phi_j * \phi_k(x) = \sqrt{d} w_k \phi_k(x)
+\]
+where $w_k$ can be computed similarly using the FFT, as for $\mu_0$.
+
+Using this fact to calculate $\bar\mu_i$,
+\[
+\bar\mu_i = \frac{1}{\hat{Z}} \int_{\Omega} \exp\left\{-\frac{G(x)}{\sigma} - \frac{\sqrt{d}}{\sigma}\sum_{k=-L}^L \bar\mu_k w_k \phi_k(x)\right\} \phi_i^*(x) \, dx.
+\]
+
+Let us find a better way to compute $L_G$.
+Notice that \( \phi_k'(x) = \frac{2\pi}{d} ik \phi_k(x) \).
+By definition,
+\[
+[L_G]_{kl} = \int_{\Omega} \phi_l(x) G'(x) \overline{\phi_k'(x)} \,dx = -\frac{2\pi}{d} i k \int_{\Omega} \phi_l(x) G'(x) \phi_{-k}(x) \,dx.
+\]
+Write 
+\[
+G(x) = \sum_{j=-\infty}^{\infty} g_j \phi_j(x) \implies G'(x) = \sum_{j=-\infty}^{\infty} g_j \phi_j'(x) = \sum_{j=-\infty}^{\infty} \frac{2\pi}{d} ij g_j \phi_j(x).
+\]
+Then, we get that 
+\[
+\begin{split}
+    [L_G]_{kl} &= \frac{4\pi^2}{d^2} k \sum_{j=-\infty}^{\infty} j g_j \int_{\Omega} \phi_l(x) \phi_j(x) \phi_{-k}(x) \, dx \\
+    &= \frac{4\pi^2}{d^2\sqrt{d}} k  \sum_{j=-\infty}^{\infty} j g_j \int_{\Omega} \frac{1}{\sqrt{d}} e^{\frac{2\pi}{d} i (l+j-k)x} \, dx \\
+    &= \frac{4\pi^2}{d^2\sqrt{d}} k (k-l) g_{k-l}.
+\end{split}
+\]
+
+We move to compute matrix $D$, which is given by
+\[
+D_{kl} = \int_{\Omega} \phi_l'(x) \overline{\phi_k'(x)} \, dx = \frac{4 \pi^2}{d^2} kl \int_{\Omega} \phi_{l}(x) \phi_{-k}(x) \, dx = \frac{4 \pi^2}{d^2} kl \mathbbm{1}_{k=l}.
+\]
+
+Let us do this for matrix $K$.
+By definition, 
+\[
+\begin{split}
+    K_{kl} &= \int_{\Omega} [\bar{\mu}_L(x) (W' * \phi_l(x)) + \phi_l(x) (W'*\bar\mu_L(x))] \overline{\phi_k'(x)} \, dx \\
+    &= \sum_{j=-L}^{L} \bar\mu_j \int_{\Omega} [\phi_j(x) (W' * \phi_l(x)) + \phi_l(x) (W'* \phi_j(x))] \overline{\phi_k'(x)} \, dx \\
+    &= \sum_{j=-L}^{L} \bar\mu_j \int_{\Omega} [\phi_j(x) \sqrt{d} w_l' \phi_l(x) + \phi_l(x) \sqrt{d} w_j' \phi_j(x) ] \overline{\phi_k'(x)} \, dx \\
+    &= \frac{4\pi^2}{d\sqrt{d}} k \sum_{j=-L}^{L} \bar\mu_j ( l w_l + j w_j) \int_{\Omega} \phi_j(x) \phi_l(x) \phi_{-k}(x) \, dx \\
+    &= \frac{4\pi^2}{d^2} k \sum_{j=-L}^{L} \bar\mu_j ( l w_l + j w_j) \int_{\Omega} \frac{1}{\sqrt{d}}e^{\frac{2\pi}{d}i(j+l-k)x} \, dx \\
+    &= \frac{4\pi^2}{d^2} k \bar\mu_{k-l}(l w_l + (k-l)w_{k-l})\mathbbm{1}_{|k-l|\le L} ,
+\end{split}
+\]
+where we used that
+\[
+W'(x) = \sum_{j=-\infty}^{\infty} w_j \phi_j'(x) = \sum_{j=-\infty}^{\infty} \frac{2\pi}{d} ij w_j \phi_j(x). 
+\]
+
+The next step is to calculate the matrix $T$.
+We have
+\[
+\begin{split}
+    T_{klm} &= \langle \phi_l W' * \phi_m, \phi_k' \rangle \\
+    &= \frac{2\pi}{\sqrt{d}} im w_m \langle \phi_l \phi_m, \phi_k' \rangle \\
+    &= \frac{4\pi^2}{d\sqrt{d}} k m w_m \int_{\Omega} \phi_l(x) \phi_m(x) \phi_{-k}(x) \, dx \\
+    &= \frac{4\pi^2}{d^2} k m w_m \mathbbm{1}_{m=k-l} \mathbbm{1}_{|k-l| \le L}.     
+\end{split}
+\]
+Given the sparsity of matrix $T$, we can compute $T : (a \otimes a)$ without storing $T$.
+
+Notice that, for each $k$, 
+\[
+\sum_{l=-L}^{L} \sum_{m=-L}^{L} a_l(t) a_m(t) T_{klm} =  \frac{4\pi^2}{d^2} k \sum_{l=\max(k-L, -L)}^{\min(k+L, L)} a_l(t) a_{k-l}(t) (k-l) w_{k-l} =: T_k(a,a).
+\]  
+
+Then, we want to solve, for each $i$, and using the properties we discussed about this basis of functions,
+\[
+\begin{split}
+    \dot{a}_i(t)  &= -\sum_{k=-L}^{L} a_k(t) (L_{ik} + \sigma D_{ik} + K_{ik}) - T_i(a,a).
+\end{split}
+\]
+
+When including the control, notice that tensor $\Psi^{(j)}$ is similar to $L_G$ by replacing $G$ per $\alpha_j$ for each $j=1, \dots, m$. 
+All the calculations remain the same.
+For the operator $\mathcal{B}$, we need to apply $\mathcal{N}$ to $\bar\mu$.
+When discretizing, we get 
+\[
+B_{kj} = -\int_{\Omega} \hat\mu_L(x) \alpha_j'(x) \overline{\phi_k'(x)} \, dx = -\sum_{l=-L}^L \bar\mu_l \int_{\Omega} \phi_l(x) \alpha_j'(x) \overline{\phi_k'(x)} \, dx \implies B_j = -\Psi^{(j)} \bar\mu.
+\]
+
+Another possibility is that $\alpha_j$ is not a periodic function, but $\nabla \alpha$ is a constant function.
+In this case,
+\[
+\Psi_{kl}^{(j)} = \langle \phi_l, \phi_k' \rangle = \frac{2\pi}{d} ik\langle \phi_l, \phi_k \rangle = \frac{2\pi}{d} ik \mathbbm{1}_{k=l}.
+\]
+
+\subsubsection{Ideas to implement}
+
+\begin{enumerate}
+    \item I can reduce the system size by using symmetry in the complex numbers, such as, \(a_{-k} = \overline{a_k}\). 
+    For this to work, I must redo all matrices considering the system reduction: 
+    For the linear case, it is not hard. 
+    Suppose $x = (x^{0}, x^{1}, x^{2})$ and $x' = Ax$ for a matrix $A$. 
+    Consider that $A$ can be divided in six parts and $x^{2} = \overline{x^{1}}$. 
+    We suppose that $x_0$ is real.
+    Then,
+    \begin{align*}
+        \dot{\Re(x^{1})} &= \Re(A_0) x_0 + \Re(A_1) \Re(x^1) - \Im(A_1) \Im(x^1) + \Re(A_2) \Re(x^1) + \Im(A_2) \Im(x^1) \\
+        \dot{\Im(x^{1})}&= \Im(A_0) x_0 + \Re(A_1) \Im(x^1) + \Im(A_1) \Re(x^1) - \Re(A_2) \Im(x^1) - \Im(A_2) \Re(x^1),
+    \end{align*}
+    which is an affine system if we suppose that $x_0$ is known.
+    For the quadratic transformation $T_k$, we need more work because 
+    \[
+    \begin{split}
+        T_k(a,a) &= -\sum_{s=1}^{L-k} (\Re(a_{k+s}) + i \Im(a_{k+s}))(\Re(a_{s}) - i \Im(a_{s}))s(\Re(w_{s}) - i \Im(w_{s})) \\ &+ \sum_{s=1}^{k-1} (\Re(a_{k-s}) + i \Im(a_{k-s}))(\Re(a_{s}) + i \Im(a_{s}))s(\Re(w_{s}) + i \Im(w_{s})) \\ &+ \sum_{s=k}^{L} (\Re(a_{s-k}) - i \Im(a_{s-k}))(\Re(a_{s}) + i \Im(a_{s}))s(\Re(w_{s}) + i \Im(w_{s})).
+    \end{split}
+    \]
+
+
+    \item matrix $L_G$, $D$ and $K$ have special structures.
+    In particular, $L_G a$ can be viewed as a convolution of $a$ instead of a matrix product. 
+    Therefore, we can apply the Fast Fourier Transform and reduce the cost from $O(L^2)$ to $O(L \log L)$.
+\end{enumerate}
+
+
+\newpage
+
+\bibliographystyle{plainnat}
+\bibliography{biblio}
+
+\end{document}
+
+\subsubsection{1-D case}
+
+In one dimension, over the interval $[0,d]$ with periodic boundary conditions, consider the orthonormal basis
+\[
+\phi_k(x) = \begin{cases}
+    \sqrt{\frac{2}{d}} \cos\left(\frac{2k\pi x}{d} \right), &k \ge 1, \\
+    \sqrt{\frac{1}{d}}, &k =0, \\
+    \sqrt{\frac{2}{d}} \sin\left(\frac{2|k|\pi x}{d} \right), &k \le -1.
+\end{cases}
+\]
+
+An easy way to project a function on the Fourier basis uses the so-called Fast Fourier Transform.
+If over an interval $[0,d]$,
+\[
+g(x) = \sum_{k=-L}^L c_k \psi_k(x), \quad \psi_k(x) = \sqrt{\frac{1}{d}}e^{\frac{2\pi}{d} k x i},
+\]
+then we know that
+\[
+c_k = \sqrt{\frac{1}{d}} \int_0^d f(x) e^{-\frac{2\pi}{d} k x i} \, dx \approx \frac{d}{N\sqrt{d}} \sum_{j=0}^{N-1} f(t_j) e^{-\frac{2\pi}{d} k t_j i}
+\]
+for points $0 \le t_0 < t_1 < \cdots < t_{N-1} \le d$. 
+We consider the mid interval points $t_j = (j+1/2) d/N$, so
+\[
+\begin{split}
+    c_k &\approx \frac{\sqrt{d}}{N} \sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} k (j+1/2) i} \\
+    &= \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i}\sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} j k i} \\
+    &=  \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i} FFT_k[(f_0, \dots, f_{N-1})],
+\end{split}
+\]
+where $f_j = f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)$.
+After computing $c_k$ values, by Euler relation, we obtain the values for the writing using cosine and sine functions.
+That is, if
+\[
+g(x) = \sum_{k=-L}^L a_k \phi_k(x),
+\]
+we have $a_0 = c_0$ and $a_n = 2\operatorname{Re}(c_n)/\sqrt{2}$ for $n \ge 1$ and $a_n = 2\operatorname{Im}(c_n)/\sqrt{2}$ for $n \le -1$.
+
+Let us calculate $W * \phi_k$ for a periodic function $W$.
+Write 
+\[
+W(x) = \sum_{j=-\infty}^{\infty} w_j \phi_j (x).
+\]
+Then,
+\[
+\begin{split}
+    W * \phi_k(x) &= \sum_{j=-\infty}^{\infty} w_j \int_{\Omega} \phi_j(x-y) \phi_k(y) \, dy \\ 
+    &= \sum_{j=-\infty}^{\infty} w_j  \phi_j * \phi_k(x) = \begin{cases}
+    \sqrt{\frac{d}{2}}(\operatorname{sgn}(k) w_k \phi_{|k|}(x) + w_{-k}\phi_{-|k|}(x)), &k\neq 0 \\
+    w_0 \sqrt{d}\phi_0(x), &k=0 
+    \end{cases}
+\end{split}
+\]
+where $w_k$ can be computed similarly using the FFT, as for $\mu_0$ and we can pre-compute $\phi_j * \phi_k$ as:
+\[
+\phi_j * \phi_k = \sqrt{\frac{d}{2}} \left( \operatorname{sgn}(j)\phi_{|j|} \mathbbm{1}_{j=k} + \phi_{-|j|} \mathbbm{1}_{j=-k} \right),
+\]
+for $j \neq 0$. 
+If $j=0$ and $k \neq 0$, this composition is $0$, but if $j=0$ and $k=0$, it is $1$.
+
+Using this fact to calculate $\bar\mu_i$,
+\[
+\bar\mu_i = \frac{1}{\hat{Z}} \int_{\Omega} \exp\left\{-G(x) -  \left(\sum_{k=-L, k\neq 0}^L \bar\mu_k \sqrt{\frac{d}{2}}\left(\operatorname{sgn}(k) w_k \phi_{|k|}(x) + w_{-k}\phi_{-|k|}(x)\right) + \bar\mu_0 w_0\right)\right\} \phi_i^*(x) \, dx,
+\]
+
+Let us find a better way to compute $L_G$.
+\[
+\phi_k'(x) = \begin{cases}
+    -\frac{2k\pi}{d} \sqrt{\frac{2}{d}} \sin\left(\frac{2k\pi x}{d} \right) = -\frac{2k\pi}{d} \phi_{-k}(x), &k \ge 1, \\
+    0, &k =0, \\
+    \frac{2|k|\pi}{d}\sqrt{\frac{2}{d}} \cos\left(\frac{2|k|\pi x}{d} \right) = \frac{2|k|\pi}{d} \phi_{-k}(x), &k \le -1.
+\end{cases}
+\]
+
+By definition,
+\[
+[L_G]_{ij} = \int_{\Omega} \phi_j(x) G'(x) \phi_i'(x) \,dx = -2\frac{i\pi}{d} \int_{\Omega} \phi_j(x) G'(x) \phi_{-i}(x) \,dx,
+\]
+which implies that we can first project $\phi_j(x) G'(x)$ onto the Fourier basis, reverse the coefficients and then multiply by $-2i\pi/d$.
+But we can go further.
+Write 
+\[
+G'(x) = \sum_{k=-\infty}^{\infty} g_k \phi_k(x).
+\]
+Then, we get that 
+\[
+[L_G]_{ij} = -\frac{2   i\pi}{d}\sum_{k=-\infty}^{\infty} g_k \int_{\Omega} \phi_j(x) \phi_k(x) \phi_{-i}(x) \, dx, 
+\]
+which can be separated into six cases depending on the sign of $i$ and $j$.
+
+\begin{enumerate}
+    \item If $i=0$, then this integral will be always zero when multiplied by $i$.
+
+    \item If $i\neq 0$, but $j = 0$, then
+    \[
+    \int_{\Omega} \phi_j(x) \phi_k(x) \phi_{-i}(x) \, dx = \sqrt{\frac{1}{d}} \int_{\Omega} \phi_k(x) \phi_{-i}(x) \, dx = \sqrt{\frac{1}{d}}\mathbbm{1}_{\{k=-i\}}.
+    \]
+
+    \item If $i < 0$ and $j > 0$, then 
+    \[
+    \begin{split}
+             \int_{\Omega} \phi_j(x) \phi_k(x) \phi_{-i}(x) \, dx &= \frac{2}{d} \int_{\Omega} \cos\left(\frac{j\pi x}{d}\right)\cos\left(\frac{-i\pi x}{d}\right) \phi_{k}(x) \, dx \\
+             &= \frac{1}{d} \int_{\Omega} \cos\left(\frac{(j+i)\pi x}{d}\right) \phi_{k}(x) \, dx + \frac{1}{d} \int_{\Omega} \cos\left(\frac{(j-i)\pi x}{d}\right) \phi_{k}(x) \, dx \\
+             &= \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{|j+i|=k} + \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{|j-i|=k}.
+    \end{split}
+    \]
+
+    \item If $i < 0$ and $j < 0$, then 
+    \[
+    \begin{split}
+             \int_{\Omega} \phi_j(x) \phi_k(x) \phi_{-i}(x) \, dx &= \frac{2}{d} \int_{\Omega} \sin\left(\frac{|j|\pi x}{d}\right)\cos\left(\frac{-i\pi x}{d}\right) \phi_{k}(x) \, dx \\
+             &= \frac{1}{d} \int_{\Omega} \sin\left(\frac{(-i+|j|)\pi x}{d}\right) \phi_{k}(x) \, dx - \frac{1}{d} \int_{\Omega} \sin\left(\frac{(-i-|j|)\pi x}{d}\right) \phi_{k}(x) \, dx \\
+             &= \frac{1}{d} \sqrt{\frac{d}{2}} \operatorname{sgn}(-i + |j|) \mathbbm{1}_{|-i+|j||=|k|} - \frac{1}{d} \sqrt{\frac{d}{2}} \operatorname{sgn}(-i - |j|) \mathbbm{1}_{|-i-|j||=|k|} \\
+             &= \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{|i+j|=-k} - \frac{1}{d} \sqrt{\frac{d}{2}} \operatorname{sgn}(-i+j)\mathbbm{1}_{|j-i|=-k}
+    \end{split}
+    \]
+
+    \item If $i > 0$ and $j > 0$, then 
+    \[
+    \begin{split}
+             \int_{\Omega} \phi_j(x) \phi_k(x) \phi_{-i}(x) \, dx &= \frac{2}{d} \int_{\Omega} \cos\left(\frac{j\pi x}{d}\right)\sin\left(\frac{i\pi x}{d}\right) \phi_{k}(x) \, dx \\
+             &= \frac{1}{d} \int_{\Omega} \sin\left(\frac{(j+i)\pi x}{d}\right) \phi_{k}(x) \, dx - \frac{1}{d} \int_{\Omega} \sin\left(\frac{(j-i)\pi x}{d}\right) \phi_{k}(x) \, dx \\
+             &= \frac{1}{d} \sqrt{\frac{d}{2}} \operatorname{sgn}(j + i) \mathbbm{1}_{|j+i|=|k|} - \frac{1}{d} \sqrt{\frac{d}{2}} \operatorname{sgn}(j - i) \mathbbm{1}_{|j-i|=|k|}\\
+             &= \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{|j+i|=-k} - \frac{1}{d} \sqrt{\frac{d}{2}} \operatorname{sgn}(j -i) \mathbbm{1}_{|j-i|=-k}
+    \end{split}
+    \]
+
+    \item If $i > 0$ and $j < 0$, then
+    \[
+    \begin{split}
+             \int_{\Omega} \phi_j(x) \phi_k(x) \phi_{-i}(x) \, dx &= \frac{2}{d} \int_{\Omega} \sin\left(\frac{|j|\pi x}{d}\right)\sin\left(\frac{i\pi x}{d}\right) \phi_{k}(x) \, dx \\
+             &= \frac{1}{d} \int_{\Omega} \cos\left(\frac{(|j|-i)\pi x}{d}\right) \phi_{k}(x) \, dx - \frac{1}{d} \int_{\Omega} \cos\left(\frac{(|j|+i)\pi x}{d}\right) \phi_{k}(x) \, dx \\
+             &= \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{||j|-i|=k} - \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{||j|+i|=k} \\
+             &= \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{|j+i|=k} - \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{|j-i|=k}.
+    \end{split}
+    \]
+
+\end{enumerate}
+
+We move to compute matrix $D$, which is given by
+\[
+D_{ij} = \int_{\Omega} \phi_j'(x) \phi_i'(x) \, dx = 4\frac{ij \pi^2}{d^2} \int_{\Omega} \phi_{-j}(x) \phi_{-i}(x) \, dx = 4\frac{ij \pi^2}{d^2} \mathbbm{1}_{i=j}
+\]
+
+Let us do matrix $K$.
+By definition, 
+\[
+\begin{split}
+    K_{ij} &= \int_{\Omega} [\bar{\mu}_L(x) (W' * \phi_j(x)) + \phi_j(x) (W'*\bar\mu_L(x))] \phi_i'(x) \, dx \\
+    &= \sum_{k=-L}^{L} \bar\mu_k \int_{\Omega} [\phi_k(x) (W' * \phi_j(x)) + \phi_j(x) (W'* \phi_k(x))] \phi_i'(x) \, dx \\
+    &= \sum_{k=-L}^{-1} \bar\mu_k \int_{\Omega} [\phi_k(x) \sqrt{\frac{d}{2}}\left( \operatorname{sgn}(j) w_j \phi_{|j|}(x) + w_{-j} \phi_{-|j|} \right)  + \phi_j(x)  \\
+    &= \sum_{k=-L}^{L} \bar\mu_k \int_{\Omega} [\phi_k(x) w_j' \phi_j(x) + \phi_j(x) w_k' \phi_k(x)] \phi_i'(x) \, dx \\
+    &= \sum_{k=-L}^L \bar\mu_k \left(  w_j' \int_{\Omega} \phi_k(x) \phi_j(x) \phi_i'(x) \, dx  + w_k' \int_{\Omega} \phi_k(x) \phi_j(x) \phi_i'(x) \, dx \right) \\
+    &= \sum_{k=-L}^L \bar\mu_k \left(-\frac{2j\pi}{d} w_{-j} \frac{2i\pi}{d}\int_{\Omega} \phi_k(x) \phi_j(x) \phi_{-i}(x) \, dx - \frac{2k\pi}{d} w_{-k} \frac{2i\pi}{d}\int_{\Omega} \phi_k(x) \phi_j(x) \phi_{-i}(x) \, dx \right) \\
+    &= -\frac{4i\pi^2}{d^2}\sum_{k=-L}^L \bar\mu_k \int_{\Omega} \phi_k(x) \phi_j(x) \phi_{-i}(x) \, dx \left( j w_{-j} + k w_{-k}  \right),
+\end{split}
+\]
+where we used the previous known fact that $W' * \phi_k(x) = w_k' \phi_k(x)$ with $w_k' = 2 k \pi w_{-k} / d$.
+As an observation, 
+\[
+W'(x) = \frac{d}{dx} \sum_{j=-\infty}^{\infty} w_j \phi_j(x) = -\frac{2\pi}{d} \sum_{j=-\infty}^{\infty} w_j j \phi_{-j}(x) = \frac{2\pi}{d} \sum_{l=-\infty}^{\infty} w_{-l} l \phi_{l}(x).
+\]
+Notice that we already have all the necessary estimates to compute $K$.
