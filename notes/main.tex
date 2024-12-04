@@ -619,15 +619,15 @@ g(x,y) = \sum_{k=-L}^L \sum_{l=-L}^L c_{k,l} \phi_{k,l}(x,y)
 over $[0,d_1] \times [0,d_2]$.
 We know that
 \[
-c_{k,l} = \sqrt{\frac{1}{d_1 d_2}} \int_0^d f(x) e^{-\frac{2\pi}{d} k x i} \, dx \approx \frac{d}{N\sqrt{d}} \sum_{j=0}^{N-1} f(t_j) e^{-\frac{2\pi}{d} k t_j i}
+c_{k,l} = \sqrt{\frac{1}{d_1 d_2}} \int_0^{d_2} \int_0^{d_1} g(x,y) e^{-\frac{2\pi}{d_1} k x i} e^{-\frac{2\pi}{d_2} l y i} \, dx \, dy \approx  \frac{d_1 d_2}{N^2 \sqrt{d_1 d_2}} \sum_{m=0}^{N-1} \sum_{j=0}^{N-1} g(t_j, s_m) e^{-\frac{2\pi}{d_1} k t_j i} e^{-\frac{2\pi}{d_2} l s_m i}
 \]
-for points $0 \le t_0 < t_1 < \cdots < t_{N-1} \le d$. 
-We consider the mid interval points $t_j = (j+1/2) d/N$, so
+for points $0 \le t_0 < t_1 < \cdots < t_{N-1} \le d_1$ and $0 \le s_0 < s_1 < \cdots < s_{N-1} \le d_2$. 
+We consider the mid interval points $t_j = (j+1/2) d_1/N$ and $s_m = (m+1/2) d_2/N$, so
 \[
 \begin{split}
-    c_k &\approx \frac{\sqrt{d}}{N} \sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} k (j+1/2) i} \\
-    &= \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i}\sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} j k i} \\
-    &=  \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i} FFT_k[(f_0, \dots, f_{N-1})],
+    c_{k,l} &\approx \frac{\sqrt{d_1 d_2} }{N^2} \sum_{m=0}^{N-1} \sum_{j=0}^{N-1} g\left(\left(j+\frac{1}{2}\right)\frac{d_1}{N}, \left(m+\frac{1}{2}\right)\frac{d_2}{N}\right) e^{-\frac{2\pi}{N} k (j+1/2) i} e^{-\frac{2\pi}{N} l (m+1/2) i} \\
+    &= \frac{\sqrt{d_1 d_2}}{N^2} e^{-\frac{\pi}{N} (k+l) i} \sum_{m=0}^{N-1} \sum_{j=0}^{N-1} g\left(\left(j+\frac{1}{2}\right)\frac{d_1}{N}, \left(m+\frac{1}{2}\right)\frac{d_2}{N}\right) e^{-\frac{2\pi}{N} j k i}  e^{-\frac{2\pi}{N} m l i}  \\
+    &=  \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} (k+l) i } FFT_k[(f_0, \dots, f_{N-1})],
 \end{split}
 \]
 where $f_j = f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)$, for $k \ge 0$.
