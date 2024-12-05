@@ -627,11 +627,14 @@ We consider the mid interval points $t_j = (j+1/2) d_1/N$ and $s_m = (m+1/2) d_2
 \begin{split}
     c_{k,l} &\approx \frac{\sqrt{d_1 d_2} }{N^2} \sum_{m=0}^{N-1} \sum_{j=0}^{N-1} g\left(\left(j+\frac{1}{2}\right)\frac{d_1}{N}, \left(m+\frac{1}{2}\right)\frac{d_2}{N}\right) e^{-\frac{2\pi}{N} k (j+1/2) i} e^{-\frac{2\pi}{N} l (m+1/2) i} \\
     &= \frac{\sqrt{d_1 d_2}}{N^2} e^{-\frac{\pi}{N} (k+l) i} \sum_{m=0}^{N-1} \sum_{j=0}^{N-1} g\left(\left(j+\frac{1}{2}\right)\frac{d_1}{N}, \left(m+\frac{1}{2}\right)\frac{d_2}{N}\right) e^{-\frac{2\pi}{N} j k i}  e^{-\frac{2\pi}{N} m l i}  \\
-    &=  \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} (k+l) i } FFT_k[(f_0, \dots, f_{N-1})],
+    &=  \frac{\sqrt{d_1 d_2}}{N^2} e^{-\frac{\pi}{N} (k+l) i } FFT_{k,l}[(g_{0,0}, \dots, g_{N-1, N-1})],
 \end{split}
 \]
-where $f_j = f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)$, for $k \ge 0$.
-For $k < 0$, notice that $c_k = \overline{c_{-k}}$.
+where $g_{j,m} = g\left(\left(j+\frac{1}{2}\right)\frac{d_1}{N}, \left(m+\frac{1}{2}\right)\frac{d_2}{N}\right)$, for $k, m \ge 0$.
+For $k < 0$ and $l > 0$, notice that $c_{k, l} = \overline{c_{-k, l}}$.
+For $k > 0$ and $l < 0$, notice that $c_{k, l} = \overline{c_{k, -l}}$.
+For $k < 0$ and $l < 0$, notice that $c_{k, l} = c_{-k, -l}$.
+
 
 Let us calculate $W * \phi_k$ for a periodic function $W$.
 Write 

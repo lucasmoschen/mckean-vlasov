@@ -3,7 +3,7 @@ from scipy.integrate import solve_ivp
 from scipy.linalg import solve_continuous_are
 from scipy.optimize import fsolve
 from scipy.special import beta
-from scipy.fft import fft, ifft
+from scipy.fft import fft, fftshift, fft2
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import seaborn as sns
@@ -448,7 +448,7 @@ class McKeanVlasovSolver2D:
 
         Parameters:
         - L: Truncation parameter for the Fourier series.
-        - d: Domain length (assuming [0, d]).
+        - d: Domain length (assuming [0, d[0]] x [0, d[1]]).
         - G: Function G(x).
         - alpha: Function alpha(x).
         - W: Function W(x).
@@ -458,7 +458,7 @@ class McKeanVlasovSolver2D:
         - M: Cost matrix M; if None, defaults to the identity matrix.
         """
         self.L = L
-        self.d = d
+        self.d = d # tuple with two value (d_1, d_2)
         self.G = G
         self.alpha = alpha  # vector with alpha_j functions
         self.W = W
@@ -468,11 +468,13 @@ class McKeanVlasovSolver2D:
         self.grad_alpha = grad_alpha
 
         # Define the Fourier basis functions
-        self.k_vals = np.arange(-L, L + 1)
-        self.N = len(self.k_vals)  # Total number of modes
+        k_range = np.arange(-L, L + 1)
+        k_x_vals, k_y_vals = np.meshgrid(k_range, k_range, indexing='ij')
+        self.k_vals = np.vstack((k_x_vals.flatten(), k_y_vals.flatten())).T
+        self.N = self.k_vals.shape[0]
 
         # Compute the orthonormal Fourier basis functions
-        self.phi_funcs = [self._phi_k(k) for k in self.k_vals]
+        self.phi_funcs = [self._phi_k(k_pair) for k_pair in self.k_vals]
 
         # Project mu_0 onto the Fourier basis
         self.mu0_projected = self._project_mu0(min_fourier_samples)
@@ -483,8 +485,8 @@ class McKeanVlasovSolver2D:
         self._compute_D_matrix()
         try:
             self.compute_bar_mu()
-        except:
-            print("WARNING - Method 1 didn't work.")
+        except Exception as e:
+            print(f"WARNING - Method 1 didn't work. Error: {e}")
             self.bar_mu_k = self.compute_bar_mu_method2()
         self._compute_K_matrix()
         # Project y0 onto the Fourier basis
@@ -504,15 +506,29 @@ class McKeanVlasovSolver2D:
         # Cost matrix M
         self.M = state_weight * np.identity(self.N) if M is None else M
 
-    def reconstruction(self, a, x):
-        """
-        Reconstruct a function from coefficients a and points x.
-        """
-        return np.real(np.sum([a[k]*self.phi_funcs[k](x) for k in range(self.N)], axis=0))
+    def _integrate(self, f):
+        """Numerical integration over [0, d] using the trapezoidal rule."""
+        x_vals = np.linspace(0, self.d, 1000)
+        y_vals = f(x_vals)
+        return np.trapezoid(y_vals, x_vals)
 
-    def _phi_k(self, k):
-        """Return the k-th Fourier basis function, scaled to be orthonormal over [0, d]."""
-        return lambda x: np.exp(2*np.pi*1j*k*x/self.d) / np.sqrt(self.d)
+    def reconstruction(self, a, x, y):
+        """
+        Reconstruct a function from coefficients a and points x, y.
+        """
+        x = x[..., np.newaxis]
+        y = y[..., np.newaxis]
+        k_x = self.k_vals[:, 0]
+        k_y = self.k_vals[:, 1]
+        d1, d2 = self.d
+        exponentials = np.exp(2 * np.pi * 1j * (k_x * x / d1 + k_y * y / d2)) / np.sqrt(d1 * d2)
+        return np.real(np.tensordot(exponentials, a, axes=([2], [0])))
+
+    def _phi_k(self, k_pair):
+        """Return the (k_x, k_y)-th 2D Fourier basis function."""
+        k_x, k_y = k_pair
+        d1, d2 = self.d
+        return lambda x, y: np.exp(2 * np.pi * 1j * (k_x * x / d1 + k_y * y / d2)) / np.sqrt(d1 * d2)
 
     def _project_mu0(self, min_fourier_samples=200):
         """Project the initial density mu_0 onto the Fourier basis."""
@@ -527,12 +543,19 @@ class McKeanVlasovSolver2D:
         if project_on is None:
             project_on = self.L
 
-        c = np.zeros(2*project_on+1, dtype=np.complex128)
-        samples = 2**int(np.ceil(np.log2(max(min_fourier_samples, self.L + 2, project_on + 2))))
-        f = func((np.linspace(0, samples, samples, endpoint=False) + 0.5)*self.d/samples)
-        c_fft = (np.sqrt(self.d)/samples)*fft(f)*np.exp(-np.pi*1j*np.linspace(0, samples, samples, endpoint=False)/samples)
-        c[project_on:] = c_fft[0: project_on+1]
-        c[0:project_on] = np.conjugate(c_fft[1:project_on+1][::-1])
+        samples = 2 ** int(np.ceil(np.log2(max(min_fourier_samples, 2 * project_on + 1))))
+        samples_array = np.arange(samples)
+        X, Y = np.meshgrid((samples_array + 0.5) * self.d[0] / samples, (samples_array + 0.5) * self.d[1] / samples, indexing='ij')
+        c_fft = fftshift(fft2(func(X, Y))) # centralize the 0 in the middle of the 2D-array.
+
+        k_indices = np.arange(-samples // 2, samples // 2)
+        KX, KY = np.meshgrid(k_indices, k_indices, indexing='ij')
+        c_fft *= np.exp(-1j * np.pi * (KX + KY) / samples) * np.sqrt(self.d[0] * self.d[1]) / samples ** 2
+
+        idx_start = samples // 2 - project_on # Get the central values from - L to L.
+        idx_end = samples // 2 + project_on + 1
+        c = c_fft[idx_start:idx_end, idx_start:idx_end]
+        c = c.flatten()
         return c
 
     def _integrate(self, f):

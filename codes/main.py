@@ -3,7 +3,7 @@ from scipy.integrate import solve_ivp
 from scipy.linalg import solve_continuous_are
 from scipy.optimize import fsolve
 from scipy.special import beta
-from scipy.fft import fft, ifft
+from scipy.fft import fft, fftshift
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import seaborn as sns
@@ -58,8 +58,8 @@ class McKeanVlasovSolver:
         self._compute_D_matrix()
         try:
             self.compute_bar_mu()
-        except:
-            print("WARNING - Method 1 didn't work.")
+        except Exception as e:
+            print(f"WARNING - Method 1 didn't work. Error: {e}")
             self.bar_mu_k = self.compute_bar_mu_method2()
         self._compute_K_matrix()
         # Project y0 onto the Fourier basis
@@ -79,6 +79,12 @@ class McKeanVlasovSolver:
         # Cost matrix M
         self.M = state_weight * np.identity(self.N) if M is None else M
 
+    def _integrate(self, f):
+        """Numerical integration over [0, d] using the trapezoidal rule."""
+        x_vals = np.linspace(0, self.d, 1000)
+        y_vals = f(x_vals)
+        return np.trapezoid(y_vals, x_vals)
+
     def reconstruction(self, a, x):
         """
         Reconstruct a function from coefficients a and points x.
@@ -95,19 +101,20 @@ class McKeanVlasovSolver:
     
     def _project_Fourier_basis_FFT(self, func, min_fourier_samples=200, project_on=None):
         """
-        Project the function func onto the Fourier basis.
-        - func: the function to be projected. 
-        - min_fourier_samples: the number of samples to approximate the integral.
+        Improved function using fftshift and proper indexing.
         """
         if project_on is None:
             project_on = self.L
 
-        c = np.zeros(2*project_on+1, dtype=np.complex128)
-        samples = 2**int(np.ceil(np.log2(max(min_fourier_samples, self.L + 2, project_on + 2))))
-        f = func((np.linspace(0, samples, samples, endpoint=False) + 0.5)*self.d/samples)
-        c_fft = (np.sqrt(self.d)/samples)*fft(f)*np.exp(-np.pi*1j*np.linspace(0, samples, samples, endpoint=False)/samples)
-        c[project_on:] = c_fft[0: project_on+1]
-        c[0:project_on] = np.conjugate(c_fft[1:project_on+1][::-1])
+        samples = 2**int(np.ceil(np.log2(max(min_fourier_samples, 2 * project_on + 1))))
+        x = (np.arange(samples) + 0.5) * self.d / samples
+        f = func(x)
+        c_fft = fftshift(fft(f))
+        k_indices = np.arange(-samples//2, samples//2)
+        c_fft *= np.exp(-1j * np.pi * k_indices / samples) * np.sqrt(self.d) / samples
+        start_idx = samples//2 - project_on
+        end_idx = samples//2 + project_on + 1
+        c = c_fft[start_idx:end_idx]
         return c
 
     def _grad_finite_differences(self, F):
@@ -140,7 +147,7 @@ class McKeanVlasovSolver:
             vector_initial, 
             full_output=True
         )
-        
+
         if ier != 1:
             raise ValueError("Nonlinear solver did not converge: " + mesg)
         
@@ -706,7 +713,7 @@ if __name__ == '__main__':
         return -2 * np.sin(x) / np.sqrt(4 * np.pi) 
 
     def W(x):
-        return abs(x - np.pi)**2
+        return np.cos(x)
 
     def mu_0(x):
         alpha_param = 2.0
