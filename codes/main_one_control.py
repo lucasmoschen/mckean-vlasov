@@ -128,7 +128,7 @@ class McKeanVlasovSolver:
         
         def equations(vector):
             bar_mu_k = vector[:self.N] + 1j * vector[self.N:]
-            exponent = lambda x: -self.G(x)/self.sigma - np.sqrt(self.d)/self.sigma * sum(
+            exponent = lambda x: -self.G(x)/self.sigma**2 - np.sqrt(self.d)/self.sigma**2 * sum(
                 bar_mu_k[j] * self.w[j] * self.phi_funcs[j](x) for j in range(self.N)
             )
             integral_terms = self._project_Fourier_basis_FFT(lambda x: np.exp(exponent(x)), min_fourier_samples)
