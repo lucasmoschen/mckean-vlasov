@@ -513,8 +513,8 @@ class McKeanVlasovPlotter:
 
     def plot_control_and_norm(self, t_max):
         # Generate the control function values
-        solution = self.solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 50)))))
-        solution2 = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 50)))))
+        solution = self.solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(500, int(np.ceil(t_max * 100)))))
+        solution2 = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(500, int(np.ceil(t_max * 100)))))
         t_points = solution.t
         control = np.array([-np.real(self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i]) for i in range(len(t_points))]).T
 
@@ -549,8 +549,8 @@ class McKeanVlasovPlotter:
 
     def plot_control_and_norm_linear(self, t_max):
         # Generate the control function values
-        solution = self.solver.solve_control_linearized_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 50)))))
-        solution2 = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 50)))))
+        solution = self.solver.solve_control_linearized_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(500, int(np.ceil(t_max * 100)))))
+        solution2 = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(500, int(np.ceil(t_max * 100)))))
         t_points = solution.t
         control = np.array([-np.real(self.solver.B.conj().T @ self.solver.Pi @ solution.y[:, i]) for i in range(len(t_points))]).T
 
@@ -585,8 +585,8 @@ class McKeanVlasovPlotter:
 
     def plot_y_diff_L2_norm(self, t_max):
 
-        y_nonlinear = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
-        y_linear = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(100, int(np.ceil(t_max * 30)))))
+        y_nonlinear = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(500, int(np.ceil(t_max * 30)))))
+        y_linear = self.solver.linearized_uncontrolled_solver(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(500, int(np.ceil(t_max * 30)))))
 
         # Calculate the L2 norm difference
         diff = np.linalg.norm(y_nonlinear.y - y_linear.y, axis=0)
