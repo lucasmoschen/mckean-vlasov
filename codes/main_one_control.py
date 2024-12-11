@@ -680,19 +680,17 @@ def profile_time_analyser(solver):
 
 if __name__ == '__main__':
 
-    #unittest.main()
-
     def G(x):
-        return (x - np.pi)**2 # - 2 * (x - np.pi)**2 + 1
+        return 0.0001*(x - np.pi)**2
 
     def alpha(x):
-        return np.sin(x) + np.cos(x)
+        return np.sin(2*x)
     
     def nabla_alpha(x):
-        return np.cos(x) - np.sin(x)
+        return 2*np.cos(2*x)
 
     def W(x):
-        return abs(x - np.pi)**2
+        return np.zeros_like(x)
 
     def mu_0(x):
         alpha_param = 2.0
@@ -712,19 +710,3 @@ if __name__ == '__main__':
     
     solver = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=alpha, W=W, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.0001, 
                                 grad_alpha=nabla_alpha, state_weight=1000)
-    
-    #profile_time_analyser(solver)
-
-    plotter = McKeanVlasovPlotter(solver)
-
-    #plotter.plot_mu_bar_x()
-
-    plotter.plot_control_and_norm(t_max=5.0)
-
-    #plotter.plot_control_and_norm(t_max=0.5)
-
-    #plotter.plot_pi_matrix()
-
-    #plotter.plot_y_diff_L2_norm(t_max=0.5)
-
-    #plotter.animate_solution(t_values=np.linspace(0, 0.5, 50))
