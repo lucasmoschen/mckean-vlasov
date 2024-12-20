@@ -124,14 +124,14 @@ class McKeanVlasovSolver:
         h = 1e-6
         return lambda x: (F(x + h) - F(x - h)) / (2 * h)
     
-    def compute_bar_mu(self, method="self-consistency", min_fourier_samples=200):
+    def compute_bar_mu(self, method="self-consistency", min_fourier_samples=200, bar_mu_k_initial=None):
         if method == "self-consistency":
-            bar_mu_k = self._self_consistency(min_fourier_samples)
+            bar_mu_k = self._self_consistency(min_fourier_samples, bar_mu_k_initial)
         elif method == "stationary-equation":
-            bar_mu_k = self._stationary_equation()
+            bar_mu_k = self._stationary_equation(bar_mu_k_initial)
         return bar_mu_k
 
-    def _self_consistency(self, min_fourier_samples=200):
+    def _self_consistency(self, min_fourier_samples, bar_mu_k_initial):
         """Compute the approximation of bar_mu by solving the set of non-linear equations for a complex bar_mu_k."""
         
         def equations(vector):
@@ -146,7 +146,8 @@ class McKeanVlasovSolver:
             return residuals
 
         # Initial guess: start with zeros for both real and imaginary parts
-        bar_mu_k_initial = np.zeros(self.N, dtype=np.complex128)
+        if bar_mu_k_initial is None:
+            bar_mu_k_initial = np.zeros(self.N, dtype=np.complex128)
         vector_initial = np.hstack([bar_mu_k_initial.real, bar_mu_k_initial.imag])
         
         sol, _, ier, mesg = fsolve(
@@ -160,7 +161,7 @@ class McKeanVlasovSolver:
         
         return sol[:self.N] + 1j * sol[self.N:] 
 
-    def _stationary_equation(self):
+    def _stationary_equation(self, bar_mu_k_initial):
         """Compute the approximation of bar_mu by solving the set of non-linear equations for a complex bar_mu_k."""
         
         def equations(vector):
@@ -170,7 +171,8 @@ class McKeanVlasovSolver:
             return residuals
 
         # Initial guess: start with zeros for both real and imaginary parts
-        bar_mu_k_initial = np.zeros(self.L, dtype=np.complex128)
+        if bar_mu_k_initial is None:
+            bar_mu_k_initial = np.zeros(self.L, dtype=np.complex128)
         vector_initial = np.hstack([bar_mu_k_initial.real, bar_mu_k_initial.imag])
         
         sol, _, ier, mesg = fsolve(
