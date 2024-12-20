@@ -57,10 +57,10 @@ class McKeanVlasovSolver:
         self._compute_LG_matrix(min_fourier_samples)
         self._compute_D_matrix()
         try:
-            self.compute_bar_mu()
+            self.bar_mu_k = self.compute_bar_mu(method="self-consistency", min_fourier_samples=min_fourier_samples)
         except Exception as e:
-            print(f"WARNING - Method 1 didn't work. Error: {e}")
-            self.bar_mu_k = self.compute_bar_mu_method2()
+            print(f"WARNING - Method Self-Consistency didn't work. Error: {e}")
+            self.bar_mu_k = self.compute_bar_mu(method="stationary-equation", min_fourier_samples=min_fourier_samples)
         self._compute_K_matrix()
         # Project y0 onto the Fourier basis
         self.a0 = self.bar_mu_k - self.mu0_projected
@@ -123,8 +123,15 @@ class McKeanVlasovSolver:
         """
         h = 1e-6
         return lambda x: (F(x + h) - F(x - h)) / (2 * h)
+    
+    def compute_bar_mu(self, method="self-consistency", min_fourier_samples=200):
+        if method == "self-consistency":
+            bar_mu_k = self._self_consistency(min_fourier_samples)
+        elif method == "stationary-equation":
+            bar_mu_k = self._stationary_equation()
+        return bar_mu_k
 
-    def compute_bar_mu(self, min_fourier_samples=200):
+    def _self_consistency(self, min_fourier_samples=200):
         """Compute the approximation of bar_mu by solving the set of non-linear equations for a complex bar_mu_k."""
         
         def equations(vector):
@@ -151,9 +158,9 @@ class McKeanVlasovSolver:
         if ier != 1:
             raise ValueError("Nonlinear solver did not converge: " + mesg)
         
-        self.bar_mu_k = sol[:self.N] + 1j * sol[self.N:] 
+        return sol[:self.N] + 1j * sol[self.N:] 
 
-    def compute_bar_mu_method2(self):
+    def _stationary_equation(self):
         """Compute the approximation of bar_mu by solving the set of non-linear equations for a complex bar_mu_k."""
         
         def equations(vector):
@@ -291,7 +298,7 @@ class McKeanVlasovSolver:
         sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
-    def nonlinear_controlled_solver_mu(self, t_span, t_eval=None, u=lambda t: np.full((1,) + t.shape, 0.0)):
+    def nonlinear_controlled_solver_mu(self, t_span, t_eval=None, u=None):
         """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
         def ode_system(t, a, u):
             a = self._conjugate_wrapper(a, c=1/np.sqrt(self.d))
@@ -302,7 +309,7 @@ class McKeanVlasovSolver:
         sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
-    def nonlinear_controlled_solver_y(self, t_span, t_eval=None, u=lambda t,a: np.full((1,), t.shape, 0.0)):
+    def nonlinear_controlled_solver_y(self, t_span, t_eval=None, u=None):
         """Solve the non-linear and controlled McKean-Vlasov equation for y."""
         def ode_system(t, a, u):
             a = self._conjugate_wrapper(a)
@@ -314,7 +321,7 @@ class McKeanVlasovSolver:
         sol.y = self._conjugate_wrapper_matrix(sol.y)
         return sol
 
-    def linear_controlled_solver_y(self, t_span, t_eval=None, u=lambda t,a: np.zeros_like(t)):
+    def linear_controlled_solver_y(self, t_span, t_eval=None, u=None):
         """Solve the linear and controlled McKean-Vlasov equation for y."""
         def ode_system(t, a, u):
             a = self._conjugate_wrapper(a)

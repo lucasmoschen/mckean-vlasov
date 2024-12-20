@@ -331,7 +331,7 @@ class McKeanVlasovSolver:
         sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
-    def nonlinear_controlled_solver_mu(self, t_span, t_eval=None, u=lambda t: np.full((1,) + t.shape, 0.0)):
+    def nonlinear_controlled_solver_mu(self, t_span, t_eval=None, u=lambda t,a: np.zeros_like(t)):
         """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
         def ode_system(t, a, u):
             a = self._conjugate_wrapper(a, c=1/np.sqrt(self.d))
@@ -342,7 +342,7 @@ class McKeanVlasovSolver:
         sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
-    def nonlinear_controlled_solver_y(self, t_span, t_eval=None, u=lambda t,a: np.full((1,), t.shape, 0.0)):
+    def nonlinear_controlled_solver_y(self, t_span, t_eval=None, u=lambda t,a: np.zeros_like(t)):
         """Solve the non-linear and controlled McKean-Vlasov equation for y."""
         def ode_system(t, a, u):
             a = self._conjugate_wrapper(a)
@@ -779,7 +779,7 @@ class McKeanVlasovSolver2D:
         sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
-    def nonlinear_controlled_solver_mu(self, t_span, t_eval=None, u=lambda t: np.full((1,) + t.shape, 0.0)):
+    def nonlinear_controlled_solver_mu(self, t_span, t_eval=None, u=lambda t,a: np.zeros_like(t)):
         """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
         def ode_system(t, a, u):
             a = self._conjugate_wrapper(a, c=1/np.sqrt(self.d))
@@ -790,7 +790,7 @@ class McKeanVlasovSolver2D:
         sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
         return sol
 
-    def nonlinear_controlled_solver_y(self, t_span, t_eval=None, u=lambda t,a: np.full((1,), t.shape, 0.0)):
+    def nonlinear_controlled_solver_y(self, t_span, t_eval=None, u=lambda t,a: np.zeros_like(t)):
         """Solve the non-linear and controlled McKean-Vlasov equation for y."""
         def ode_system(t, a, u):
             a = self._conjugate_wrapper(a)
