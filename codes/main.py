@@ -17,7 +17,8 @@ import io
 
 class McKeanVlasovSolver:
 
-    def __init__(self, L, d, G, alpha, W, mu_0, sigma=1.0, delta=0.0, M=None, grad_alpha=None, min_fourier_samples=200, state_weight=1000):
+    def __init__(self, L, d, G, alpha, W, mu_0, sigma=1.0, delta=0.0, M=None, grad_alpha=None, min_fourier_samples=200, state_weight=1000, 
+                 bar_mu_k_initial=None):
         """
         Initialize the McKean-Vlasov solver.
 
@@ -56,14 +57,18 @@ class McKeanVlasovSolver:
         # Initialize matrices
         self._compute_LG_matrix(min_fourier_samples)
         self._compute_D_matrix()
+
+        if bar_mu_k_initial is None:
+            bar_mu_k_initial = np.zeros(self.N, dtype=np.complex128)
         try:
-            self.bar_mu_k = self.compute_bar_mu(method="self-consistency", min_fourier_samples=min_fourier_samples)
+            self.bar_mu_k = self.compute_bar_mu(method="self-consistency", min_fourier_samples=min_fourier_samples, bar_mu_k_initial=bar_mu_k_initial)
         except Exception as e:
-            print(f"WARNING - Method Self-Consistency didn't work. Error: {e}")
-            self.bar_mu_k = self.compute_bar_mu(method="stationary-equation", min_fourier_samples=min_fourier_samples)
+            print("WARNING - Method Self-Consistency Method didn't work.")
+            print(f"Error: {e}")
+            self.bar_mu_k = self.compute_bar_mu(method="stationary-equation", min_fourier_samples=min_fourier_samples, bar_mu_k_initial=bar_mu_k_initial[self.L+1:])
         self._compute_K_matrix()
         # Project y0 onto the Fourier basis
-        self.a0 = self.bar_mu_k - self.mu0_projected
+        self.a0 = self.mu0_projected - self.bar_mu_k
 
         # Control-related matrices
         if type(self.grad_alpha) == str:
@@ -125,9 +130,14 @@ class McKeanVlasovSolver:
         return lambda x: (F(x + h) - F(x - h)) / (2 * h)
     
     def compute_bar_mu(self, method="self-consistency", min_fourier_samples=200, bar_mu_k_initial=None):
+
         if method == "self-consistency":
+            if bar_mu_k_initial is None:
+                bar_mu_k_initial = np.zeros(self.N, dtype=np.complex128)
             bar_mu_k = self._self_consistency(min_fourier_samples, bar_mu_k_initial)
         elif method == "stationary-equation":
+            if bar_mu_k_initial is None:
+                bar_mu_k_initial = np.zeros(self.L, dtype=np.complex128)
             bar_mu_k = self._stationary_equation(bar_mu_k_initial)
         return bar_mu_k
 
@@ -145,9 +155,6 @@ class McKeanVlasovSolver:
             residuals = np.hstack([residual.real, residual.imag])
             return residuals
 
-        # Initial guess: start with zeros for both real and imaginary parts
-        if bar_mu_k_initial is None:
-            bar_mu_k_initial = np.zeros(self.N, dtype=np.complex128)
         vector_initial = np.hstack([bar_mu_k_initial.real, bar_mu_k_initial.imag])
         
         sol, _, ier, mesg = fsolve(
@@ -170,9 +177,6 @@ class McKeanVlasovSolver:
             residuals = np.hstack([residual[self.L+1:].real, residual[self.L+1:].imag])
             return residuals
 
-        # Initial guess: start with zeros for both real and imaginary parts
-        if bar_mu_k_initial is None:
-            bar_mu_k_initial = np.zeros(self.L, dtype=np.complex128)
         vector_initial = np.hstack([bar_mu_k_initial.real, bar_mu_k_initial.imag])
         
         sol, _, ier, mesg = fsolve(
@@ -399,7 +403,7 @@ class McKeanVlasovSolver:
         assert A.shape[0] == B.shape[0], "A and B must have compatible dimensions."
 
         # Check stabilizability of (A, B)
-        unstable_eigenvalues = [ev for ev in eigvals(A) if np.real(ev) >= 0]
+        unstable_eigenvalues = [ev for ev in np.linalg.eig(A)[0] if np.real(ev) >= 0]
         for eigenvalue in unstable_eigenvalues:
             extended_matrix = np.hstack(
                 [eigenvalue * np.eye(A.shape[0]) - A, B]
@@ -539,7 +543,7 @@ class McKeanVlasovPlotter:
         ax1.plot(t_points, y_norm2, color="red", label="Uncontrolled")
         ax1.set_xlabel('Time $t$', fontsize=14)
         ax1.set_ylabel('$||y(., t)||_{L^2}$', fontsize=14)
-        ax1.set_title('Norm of $y(t)$ over Time')
+        ax1.set_title('Norm of $y(t)$ over Time', fontsize=18)
         ax1.set_yscale("log")
         ax1.legend()
 
@@ -548,7 +552,7 @@ class McKeanVlasovPlotter:
             ax2.plot(t_points, abs(control[j]), label=r"$\alpha_{}$".format(j+1))
         ax2.set_xlabel('Time $t$', fontsize=14)
         ax2.set_ylabel('Control $u(t)$', fontsize=14)
-        ax2.set_title('Control Function over Time')
+        ax2.set_title(r'Control Functions over Time for each $\alpha$', fontsize=18)
         ax2.set_yscale("log")
         ax2.legend()
 
@@ -576,7 +580,7 @@ class McKeanVlasovPlotter:
         ax1.set_yscale("log")
         ax1.set_xlabel('Time $t$', fontsize=14)
         ax1.set_ylabel('$||y(., t)||_{L^2}$', fontsize=14)
-        ax1.set_title('Norm of $y(t)$ linearized over Time')
+        ax1.set_title('Norm of $y(t)$ linearized over Time', fontsize=18)
         ax1.legend()
 
         # Plotting the control function
@@ -585,7 +589,7 @@ class McKeanVlasovPlotter:
         ax2.set_yscale("log")
         ax2.set_xlabel('Time $t$', fontsize=14)
         ax2.set_ylabel('Control $u(t)$', fontsize=14)
-        ax2.set_title('Control Function over Time')
+        ax2.set_title('Control Functions over Time', fontsize=18)
         ax2.legend()
 
         # Display the plots
