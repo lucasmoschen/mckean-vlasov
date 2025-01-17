@@ -137,7 +137,7 @@ class McKeanVlasovSolver:
             bar_mu_k = self._self_consistency(min_fourier_samples, bar_mu_k_initial)
         elif method == "stationary-equation":
             if bar_mu_k_initial is None:
-                bar_mu_k_initial = np.zeros(self.L, dtype=np.complex128)
+                bar_mu_k_initial = np.zeros(self.L, dtype=np.complex128) + np.random.normal(size=self.L)
             bar_mu_k = self._stationary_equation(bar_mu_k_initial)
         return bar_mu_k
 
