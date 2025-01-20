@@ -1,7 +1,8 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.linalg import solve_continuous_are
-from scipy.optimize import fsolve
+from scipy.optimize._numdiff import approx_derivative
+from scipy.optimize import fsolve, root
 from scipy.special import beta
 from scipy.fft import fft, fftshift
 import matplotlib.pyplot as plt
@@ -53,6 +54,8 @@ class McKeanVlasovSolver:
         # Project mu_0 onto the Fourier basis
         self.mu0_projected = self._project_mu0(min_fourier_samples)
         # Project W onto the Fourier basis
+        assert abs(self.W(0) - self.W(d)) < 1e-10, "W must be periodic"
+        assert abs(self.G(0) - self.G(d)) < 1e-10, "G must be periodic"
         self.w = self._project_Fourier_basis_FFT(self.W, min_fourier_samples)
         # Initialize matrices
         self._compute_LG_matrix(min_fourier_samples)
@@ -137,7 +140,7 @@ class McKeanVlasovSolver:
             bar_mu_k = self._self_consistency(min_fourier_samples, bar_mu_k_initial)
         elif method == "stationary-equation":
             if bar_mu_k_initial is None:
-                bar_mu_k_initial = np.zeros(self.L, dtype=np.complex128) + np.random.normal(size=self.L)
+                bar_mu_k_initial = np.zeros(self.L, dtype=np.complex128)
             bar_mu_k = self._stationary_equation(bar_mu_k_initial)
         return bar_mu_k
 
@@ -146,7 +149,7 @@ class McKeanVlasovSolver:
         
         def equations(vector):
             bar_mu_k = vector[:self.N] + 1j * vector[self.N:]
-            exponent = lambda x: -self.G(x)/self.sigma**2 - np.sqrt(self.d)/self.sigma**2 * sum(
+            exponent = lambda x: -self.G(x)/self.sigma - np.sqrt(self.d)/self.sigma * sum(
                 bar_mu_k[j] * self.w[j] * self.phi_funcs[j](x) for j in range(self.N)
             )
             integral_terms = self._project_Fourier_basis_FFT(lambda x: np.exp(exponent(x)), min_fourier_samples)
@@ -169,26 +172,30 @@ class McKeanVlasovSolver:
         return sol[:self.N] + 1j * sol[self.N:] 
 
     def _stationary_equation(self, bar_mu_k_initial):
-        """Compute the approximation of bar_mu by solving the set of non-linear equations for a complex bar_mu_k."""
-        
-        def equations(vector):
-            bar_mu_k = np.hstack([vector[:self.L][::-1] - 1j * vector[self.L:][::-1], 1/np.sqrt(self.d), vector[:self.L] + 1j * vector[self.L:]])
-            residual = (self.L_G + self.sigma * self.D) @ bar_mu_k + self._compute_non_linear_term(bar_mu_k)
-            residuals = np.hstack([residual[self.L+1:].real, residual[self.L+1:].imag])
-            return residuals
+        """
+        Compute the stationary equation for bar_mu_k.
+        """
+        def equations(vec):
+            bar_mu_k = np.hstack([
+                vec[:self.L][::-1] - 1j * vec[self.L:][::-1],
+                1/np.sqrt(self.d),
+                vec[:self.L] + 1j * vec[self.L:]
+            ])
+            r = (self.L_G + self.sigma * self.D) @ bar_mu_k + self._compute_non_linear_term(bar_mu_k)
+            return np.hstack([r[self.L+1:].real, r[self.L+1:].imag])
 
-        vector_initial = np.hstack([bar_mu_k_initial.real, bar_mu_k_initial.imag])
+        x0 = np.hstack([bar_mu_k_initial.real, bar_mu_k_initial.imag])
+
+        res = root(equations, x0, method='lm')
+        if not res.success:
+            raise ValueError("Nonlinear solver did not converge: " + res.message)
         
-        sol, _, ier, mesg = fsolve(
-            equations, 
-            vector_initial, 
-            full_output=True
-        )
-        
-        if ier != 1:
-            raise ValueError("Nonlinear solver did not converge: " + mesg)
-        
-        bar_mu_k = np.hstack([sol[:self.L][::-1] - 1j * sol[self.L:][::-1], 1/np.sqrt(self.d), sol[:self.L] + 1j * sol[self.L:]])
+        sol = res.x
+        bar_mu_k = np.hstack([
+            sol[:self.L][::-1] - 1j * sol[self.L:][::-1],
+            1/np.sqrt(self.d),
+            sol[:self.L] + 1j * sol[self.L:]
+        ])
         return bar_mu_k
 
     def _compute_LG_matrix(self, min_fourier_samples):
