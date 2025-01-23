@@ -200,7 +200,7 @@ $
 $
 which encodes the distribution of the particles at time \(t\). 
 Under suitable regularity conditions on \(b\) and \(K\), it is well known ({\it cf.} \citeauthor{mckean1969propagation} (\citeyear{mckean1969propagation})) that as \(N\to\infty\), the measure \(\mu_N(t)\) converges (in an appropriate sense) to a deterministic probability density \(\rho(t,x)\). 
-This density solves the McKean–Vlasov equation, also known as the Vlasov-Fokker-Planck equation,
+This density solves the McKean-Vlasov equation, also known as the Vlasov-Fokker-Planck equation,
 \begin{equation}
     \label{eq:pde_model}
     \frac{\partial \rho}{\partial t}(t,x) - \nabla_x \cdot \Bigl[\rho(t,x)\,\Bigl(\nabla V(x) + \int_{\mathbb{R}^d} \nabla W(x,y)\,\rho(t,y)\,\mathrm{d}y\Bigr)\Bigr] = \frac{\sigma^2}{2}\,\Delta_x \,\rho(t,x), \quad x \in \mathbb{R}^d,\; t > 0.
@@ -727,6 +727,56 @@ In this case,
     Therefore, we can apply the Fast Fourier Transform and reduce the cost from $O(L^2)$ to $O(L \log L)$.
 \end{enumerate}
 
+\section{Theoretical Aspects}
+
+In this work we consider the McKean-Vlasov equation with periodic boundary conditions:
+\begin{equation}
+    \begin{aligned}
+        \frac{\partial \rho}{\partial t}(t,x) &= \sigma \,\Delta_x \,\rho(t,x) + \nabla_x \cdot \Bigl[\rho(t,x)\,\Bigl(\nabla V(x) + \int_{\mathbb{R}^d} \nabla W(x-y)\,\rho(t,y)\,\mathrm{d}y\Bigr)\Bigr] \text{ in } \mathbb{T} \times (0, \infty) \\
+        \rho(x,0) &= \rho_0(x) \text{ in } \mathbb{T},
+    \end{aligned}
+    \label{eq:mckean_vlasov}
+\end{equation}
+where $\mathbb{T} = \mathbb{R}^d/(2\pi\mathbb{Z})^d$ is the torus, $\sigma > 0$ is the diffusion coefficient, $V$ is the potential, and $W$ is the interaction potential.
+In the control scenario, we set $V(x,t) = G(x) + \boldsymbol{\alpha}(x) \cdot \boldsymbol{u}(t)$, where $G$ is the confining potential, $\boldsymbol{\alpha}$ is the control function, and $\boldsymbol{u}$ is the control input.
+All functions should be periodic in the spatial variable.
+
+\subsection{Well-posedness}
+
+For arbitrary $T > 0$, we refer to $\rho$ as a (variational) solution of \eqref{eq:mckean_vlasov} on $(0,T)$ if
+\[
+\rho \in W(0,T) = L^2(0, T; H^1(\mathbb{T})) \cap H^1(0, T; (H^1(\mathbb{T}))^*)
+\]
+and for a.e. $t \in (0, T)$,
+\begin{equation}
+    \label{eq:weak_formulation}
+    \langle \rho_t(t), v \rangle + \langle \sigma \nabla \rho(t) + \rho(t) (\nabla G + \nabla W * \rho(t)), \nabla v \rangle + \sum_{i=1}^{m} u_i(t) \langle \rho(t) \nabla \alpha_i(x), \nabla v \rangle = 0 \quad \text{for all } v \in H^1(\mathbb{T}),
+\end{equation}
+
+By XXX, $W(0,T) \subset C([0,T], L^2(\mathbb{T}))$. 
+The functions $G$ and $\alpha$ should belong to $W^{1,\infty}(\mathbb{T}) \cap W^{2, max(2,n)}(\mathbb{T})$ (\LM{I don't think that this is necessary here}) and $W \in W^{1,\infty}(\mathbb{T}) \cap W^{2, \max(2,n)}(\mathbb{T})$.
+
+\begin{proposition}
+    For every $u \in L^2(0,T)$ and $\rho_0 \in L^2(\mathbb{T})$, there exists a unique solution. 
+    If moreover $\rho_0 \in H^1(\mathbb{T})$ and $\Delta \alpha_i \in L^\infty(\mathbb{T})$ for each $i=1,\dots,m$, then $\rho_t \in L^2(0,T; L^2(\mathbb{T}))$ and $\rho \in C([0,T]; H^1(\mathbb{T}))$.
+\end{proposition}
+
+\begin{proof}
+    \LM{The claim can be verified by a standard Galerkin approximation technique, and we therefore only give the necessary a-priori estimates.} 
+    Taking the inner products with $\rho(t)$ in \eqref{eq:weak_formulation} we get
+    \[
+    \frac{1}{2}\frac{d}{dt} \|\rho(t)\|^2 + \sigma \|\nabla \rho(t)\|^2 \le \left(\|\nabla G\|_\infty + \sum_{i=1}^{m} |u_i(t)| \|\nabla \alpha_i\|_\infty + \|\nabla W\|_1 \|\rho(t)\| \right) \|\rho(t)\| \|\nabla \rho(t)\|,
+    \]
+    which implies 
+    \[
+    \frac{d}{dt} \|\rho(t)\|^2 + \sigma \|\nabla \rho(t)\|^2 \le \frac{1}{\sigma}\left(\|\nabla G\|_\infty + \sum_{i=1}^{m} |u_i(t)| \|\nabla \alpha_i\|_\infty + \|\nabla W\|_1 \|\rho(t)\| \right)^2 \|\rho(t)\|^2
+    \]
+\end{proof}
+
+
+
+
+
 
 \newpage
 
@@ -734,166 +784,3 @@ In this case,
 \bibliography{biblio}
 
 \end{document}
-
-\subsubsection{1-D case}
-
-In one dimension, over the interval $[0,d]$ with periodic boundary conditions, consider the orthonormal basis
-\[
-\phi_k(x) = \begin{cases}
-    \sqrt{\frac{2}{d}} \cos\left(\frac{2k\pi x}{d} \right), &k \ge 1, \\
-    \sqrt{\frac{1}{d}}, &k =0, \\
-    \sqrt{\frac{2}{d}} \sin\left(\frac{2|k|\pi x}{d} \right), &k \le -1.
-\end{cases}
-\]
-
-An easy way to project a function on the Fourier basis uses the so-called Fast Fourier Transform.
-If over an interval $[0,d]$,
-\[
-g(x) = \sum_{k=-L}^L c_k \psi_k(x), \quad \psi_k(x) = \sqrt{\frac{1}{d}}e^{\frac{2\pi}{d} k x i},
-\]
-then we know that
-\[
-c_k = \sqrt{\frac{1}{d}} \int_0^d f(x) e^{-\frac{2\pi}{d} k x i} \, dx \approx \frac{d}{N\sqrt{d}} \sum_{j=0}^{N-1} f(t_j) e^{-\frac{2\pi}{d} k t_j i}
-\]
-for points $0 \le t_0 < t_1 < \cdots < t_{N-1} \le d$. 
-We consider the mid interval points $t_j = (j+1/2) d/N$, so
-\[
-\begin{split}
-    c_k &\approx \frac{\sqrt{d}}{N} \sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} k (j+1/2) i} \\
-    &= \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i}\sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} j k i} \\
-    &=  \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i} FFT_k[(f_0, \dots, f_{N-1})],
-\end{split}
-\]
-where $f_j = f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)$.
-After computing $c_k$ values, by Euler relation, we obtain the values for the writing using cosine and sine functions.
-That is, if
-\[
-g(x) = \sum_{k=-L}^L a_k \phi_k(x),
-\]
-we have $a_0 = c_0$ and $a_n = 2\operatorname{Re}(c_n)/\sqrt{2}$ for $n \ge 1$ and $a_n = 2\operatorname{Im}(c_n)/\sqrt{2}$ for $n \le -1$.
-
-Let us calculate $W * \phi_k$ for a periodic function $W$.
-Write 
-\[
-W(x) = \sum_{j=-\infty}^{\infty} w_j \phi_j (x).
-\]
-Then,
-\[
-\begin{split}
-    W * \phi_k(x) &= \sum_{j=-\infty}^{\infty} w_j \int_{\Omega} \phi_j(x-y) \phi_k(y) \, dy \\ 
-    &= \sum_{j=-\infty}^{\infty} w_j  \phi_j * \phi_k(x) = \begin{cases}
-    \sqrt{\frac{d}{2}}(\operatorname{sgn}(k) w_k \phi_{|k|}(x) + w_{-k}\phi_{-|k|}(x)), &k\neq 0 \\
-    w_0 \sqrt{d}\phi_0(x), &k=0 
-    \end{cases}
-\end{split}
-\]
-where $w_k$ can be computed similarly using the FFT, as for $\mu_0$ and we can pre-compute $\phi_j * \phi_k$ as:
-\[
-\phi_j * \phi_k = \sqrt{\frac{d}{2}} \left( \operatorname{sgn}(j)\phi_{|j|} \mathbbm{1}_{j=k} + \phi_{-|j|} \mathbbm{1}_{j=-k} \right),
-\]
-for $j \neq 0$. 
-If $j=0$ and $k \neq 0$, this composition is $0$, but if $j=0$ and $k=0$, it is $1$.
-
-Using this fact to calculate $\bar\mu_i$,
-\[
-\bar\mu_i = \frac{1}{\hat{Z}} \int_{\Omega} \exp\left\{-G(x) -  \left(\sum_{k=-L, k\neq 0}^L \bar\mu_k \sqrt{\frac{d}{2}}\left(\operatorname{sgn}(k) w_k \phi_{|k|}(x) + w_{-k}\phi_{-|k|}(x)\right) + \bar\mu_0 w_0\right)\right\} \phi_i^*(x) \, dx,
-\]
-
-Let us find a better way to compute $L_G$.
-\[
-\phi_k'(x) = \begin{cases}
-    -\frac{2k\pi}{d} \sqrt{\frac{2}{d}} \sin\left(\frac{2k\pi x}{d} \right) = -\frac{2k\pi}{d} \phi_{-k}(x), &k \ge 1, \\
-    0, &k =0, \\
-    \frac{2|k|\pi}{d}\sqrt{\frac{2}{d}} \cos\left(\frac{2|k|\pi x}{d} \right) = \frac{2|k|\pi}{d} \phi_{-k}(x), &k \le -1.
-\end{cases}
-\]
-
-By definition,
-\[
-[L_G]_{ij} = \int_{\Omega} \phi_j(x) G'(x) \phi_i'(x) \,dx = -2\frac{i\pi}{d} \int_{\Omega} \phi_j(x) G'(x) \phi_{-i}(x) \,dx,
-\]
-which implies that we can first project $\phi_j(x) G'(x)$ onto the Fourier basis, reverse the coefficients and then multiply by $-2i\pi/d$.
-But we can go further.
-Write 
-\[
-G'(x) = \sum_{k=-\infty}^{\infty} g_k \phi_k(x).
-\]
-Then, we get that 
-\[
-[L_G]_{ij} = -\frac{2   i\pi}{d}\sum_{k=-\infty}^{\infty} g_k \int_{\Omega} \phi_j(x) \phi_k(x) \phi_{-i}(x) \, dx, 
-\]
-which can be separated into six cases depending on the sign of $i$ and $j$.
-
-\begin{enumerate}
-    \item If $i=0$, then this integral will be always zero when multiplied by $i$.
-
-    \item If $i\neq 0$, but $j = 0$, then
-    \[
-    \int_{\Omega} \phi_j(x) \phi_k(x) \phi_{-i}(x) \, dx = \sqrt{\frac{1}{d}} \int_{\Omega} \phi_k(x) \phi_{-i}(x) \, dx = \sqrt{\frac{1}{d}}\mathbbm{1}_{\{k=-i\}}.
-    \]
-
-    \item If $i < 0$ and $j > 0$, then 
-    \[
-    \begin{split}
-             \int_{\Omega} \phi_j(x) \phi_k(x) \phi_{-i}(x) \, dx &= \frac{2}{d} \int_{\Omega} \cos\left(\frac{j\pi x}{d}\right)\cos\left(\frac{-i\pi x}{d}\right) \phi_{k}(x) \, dx \\
-             &= \frac{1}{d} \int_{\Omega} \cos\left(\frac{(j+i)\pi x}{d}\right) \phi_{k}(x) \, dx + \frac{1}{d} \int_{\Omega} \cos\left(\frac{(j-i)\pi x}{d}\right) \phi_{k}(x) \, dx \\
-             &= \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{|j+i|=k} + \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{|j-i|=k}.
-    \end{split}
-    \]
-
-    \item If $i < 0$ and $j < 0$, then 
-    \[
-    \begin{split}
-             \int_{\Omega} \phi_j(x) \phi_k(x) \phi_{-i}(x) \, dx &= \frac{2}{d} \int_{\Omega} \sin\left(\frac{|j|\pi x}{d}\right)\cos\left(\frac{-i\pi x}{d}\right) \phi_{k}(x) \, dx \\
-             &= \frac{1}{d} \int_{\Omega} \sin\left(\frac{(-i+|j|)\pi x}{d}\right) \phi_{k}(x) \, dx - \frac{1}{d} \int_{\Omega} \sin\left(\frac{(-i-|j|)\pi x}{d}\right) \phi_{k}(x) \, dx \\
-             &= \frac{1}{d} \sqrt{\frac{d}{2}} \operatorname{sgn}(-i + |j|) \mathbbm{1}_{|-i+|j||=|k|} - \frac{1}{d} \sqrt{\frac{d}{2}} \operatorname{sgn}(-i - |j|) \mathbbm{1}_{|-i-|j||=|k|} \\
-             &= \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{|i+j|=-k} - \frac{1}{d} \sqrt{\frac{d}{2}} \operatorname{sgn}(-i+j)\mathbbm{1}_{|j-i|=-k}
-    \end{split}
-    \]
-
-    \item If $i > 0$ and $j > 0$, then 
-    \[
-    \begin{split}
-             \int_{\Omega} \phi_j(x) \phi_k(x) \phi_{-i}(x) \, dx &= \frac{2}{d} \int_{\Omega} \cos\left(\frac{j\pi x}{d}\right)\sin\left(\frac{i\pi x}{d}\right) \phi_{k}(x) \, dx \\
-             &= \frac{1}{d} \int_{\Omega} \sin\left(\frac{(j+i)\pi x}{d}\right) \phi_{k}(x) \, dx - \frac{1}{d} \int_{\Omega} \sin\left(\frac{(j-i)\pi x}{d}\right) \phi_{k}(x) \, dx \\
-             &= \frac{1}{d} \sqrt{\frac{d}{2}} \operatorname{sgn}(j + i) \mathbbm{1}_{|j+i|=|k|} - \frac{1}{d} \sqrt{\frac{d}{2}} \operatorname{sgn}(j - i) \mathbbm{1}_{|j-i|=|k|}\\
-             &= \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{|j+i|=-k} - \frac{1}{d} \sqrt{\frac{d}{2}} \operatorname{sgn}(j -i) \mathbbm{1}_{|j-i|=-k}
-    \end{split}
-    \]
-
-    \item If $i > 0$ and $j < 0$, then
-    \[
-    \begin{split}
-             \int_{\Omega} \phi_j(x) \phi_k(x) \phi_{-i}(x) \, dx &= \frac{2}{d} \int_{\Omega} \sin\left(\frac{|j|\pi x}{d}\right)\sin\left(\frac{i\pi x}{d}\right) \phi_{k}(x) \, dx \\
-             &= \frac{1}{d} \int_{\Omega} \cos\left(\frac{(|j|-i)\pi x}{d}\right) \phi_{k}(x) \, dx - \frac{1}{d} \int_{\Omega} \cos\left(\frac{(|j|+i)\pi x}{d}\right) \phi_{k}(x) \, dx \\
-             &= \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{||j|-i|=k} - \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{||j|+i|=k} \\
-             &= \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{|j+i|=k} - \frac{1}{d} \sqrt{\frac{d}{2}} \mathbbm{1}_{|j-i|=k}.
-    \end{split}
-    \]
-
-\end{enumerate}
-
-We move to compute matrix $D$, which is given by
-\[
-D_{ij} = \int_{\Omega} \phi_j'(x) \phi_i'(x) \, dx = 4\frac{ij \pi^2}{d^2} \int_{\Omega} \phi_{-j}(x) \phi_{-i}(x) \, dx = 4\frac{ij \pi^2}{d^2} \mathbbm{1}_{i=j}
-\]
-
-Let us do matrix $K$.
-By definition, 
-\[
-\begin{split}
-    K_{ij} &= \int_{\Omega} [\bar{\mu}_L(x) (W' * \phi_j(x)) + \phi_j(x) (W'*\bar\mu_L(x))] \phi_i'(x) \, dx \\
-    &= \sum_{k=-L}^{L} \bar\mu_k \int_{\Omega} [\phi_k(x) (W' * \phi_j(x)) + \phi_j(x) (W'* \phi_k(x))] \phi_i'(x) \, dx \\
-    &= \sum_{k=-L}^{-1} \bar\mu_k \int_{\Omega} [\phi_k(x) \sqrt{\frac{d}{2}}\left( \operatorname{sgn}(j) w_j \phi_{|j|}(x) + w_{-j} \phi_{-|j|} \right)  + \phi_j(x)  \\
-    &= \sum_{k=-L}^{L} \bar\mu_k \int_{\Omega} [\phi_k(x) w_j' \phi_j(x) + \phi_j(x) w_k' \phi_k(x)] \phi_i'(x) \, dx \\
-    &= \sum_{k=-L}^L \bar\mu_k \left(  w_j' \int_{\Omega} \phi_k(x) \phi_j(x) \phi_i'(x) \, dx  + w_k' \int_{\Omega} \phi_k(x) \phi_j(x) \phi_i'(x) \, dx \right) \\
-    &= \sum_{k=-L}^L \bar\mu_k \left(-\frac{2j\pi}{d} w_{-j} \frac{2i\pi}{d}\int_{\Omega} \phi_k(x) \phi_j(x) \phi_{-i}(x) \, dx - \frac{2k\pi}{d} w_{-k} \frac{2i\pi}{d}\int_{\Omega} \phi_k(x) \phi_j(x) \phi_{-i}(x) \, dx \right) \\
-    &= -\frac{4i\pi^2}{d^2}\sum_{k=-L}^L \bar\mu_k \int_{\Omega} \phi_k(x) \phi_j(x) \phi_{-i}(x) \, dx \left( j w_{-j} + k w_{-k}  \right),
-\end{split}
-\]
-where we used the previous known fact that $W' * \phi_k(x) = w_k' \phi_k(x)$ with $w_k' = 2 k \pi w_{-k} / d$.
-As an observation, 
-\[
-W'(x) = \frac{d}{dx} \sum_{j=-\infty}^{\infty} w_j \phi_j(x) = -\frac{2\pi}{d} \sum_{j=-\infty}^{\infty} w_j j \phi_{-j}(x) = \frac{2\pi}{d} \sum_{l=-\infty}^{\infty} w_{-l} l \phi_{l}(x).
-\]
-Notice that we already have all the necessary estimates to compute $K$.
