@@ -19,7 +19,7 @@ import io
 class McKeanVlasovSolver:
 
     def __init__(self, L, d, G, alpha, W, mu_0, sigma=1.0, delta=0.0, M=None, grad_alpha=None, min_fourier_samples=200, state_weight=1000, 
-                 bar_mu_k_initial=None):
+                 bar_mu_k_initial=None, final_distribution=None):
         """
         Initialize the McKean-Vlasov solver.
 
@@ -33,6 +33,7 @@ class McKeanVlasovSolver:
         - sigma: Diffusion coefficient.
         - delta: Parameter delta in the equation.
         - M: Cost matrix M; if None, defaults to the identity matrix.
+        - final_distribution: Final distribution to be reached. Should be the coefficients of the Fourier series.
         """
         self.L = L
         self.d = d
@@ -63,15 +64,13 @@ class McKeanVlasovSolver:
 
         if bar_mu_k_initial is None:
             bar_mu_k_initial = np.zeros(self.N, dtype=np.complex128)
+        # I should allow the code to compute all the stationary distributions here
         try:
             self.bar_mu_k = self.compute_bar_mu(method="self-consistency", min_fourier_samples=min_fourier_samples, bar_mu_k_initial=bar_mu_k_initial)
         except Exception as e:
             print("WARNING - Method Self-Consistency Method didn't work.")
             print(f"Error: {e}")
             self.bar_mu_k = self.compute_bar_mu(method="stationary-equation", min_fourier_samples=min_fourier_samples, bar_mu_k_initial=bar_mu_k_initial[self.L+1:])
-        self._compute_K_matrix()
-        # Project y0 onto the Fourier basis
-        self.a0 = self.mu0_projected - self.bar_mu_k
 
         # Control-related matrices
         if type(self.grad_alpha) == str:
@@ -81,15 +80,23 @@ class McKeanVlasovSolver:
             self.alpha = [lambda x: x - self.d/2 for j in range(len(alpha))]
         else:
             self._compute_Psi_matrix(min_fourier_samples)
-        self.B = -np.einsum('ijk,k->ji', self.Psi, self.bar_mu_k)
         self.Pi = None
+
+        if final_distribution is None:
+            self._compute_K_matrix(self.bar_mu_k)
+            self.a0 = self.mu0_projected - self.bar_mu_k
+            self.B = -np.einsum('ijk,k->ji', self.Psi, self.bar_mu_k)
+        else:
+            self._compute_K_matrix(final_distribution)
+            self.a0 = self.mu0_projected - final_distribution
+            self.B = -np.einsum('ijk,k->ji', self.Psi, final_distribution)
 
         # Cost matrix M
         self.M = state_weight * np.identity(self.N) if M is None else M
-
-    def _integrate(self, f):
+ 
+    def _integrate(self, f, n_points=1000):
         """Numerical integration over [0, d] using the trapezoidal rule."""
-        x_vals = np.linspace(0, self.d, 1000)
+        x_vals = np.linspace(0, self.d, n_points)
         y_vals = f(x_vals)
         return np.trapezoid(y_vals, x_vals)
 
@@ -107,19 +114,21 @@ class McKeanVlasovSolver:
         """Project the initial density mu_0 onto the Fourier basis."""
         return self._project_Fourier_basis_FFT(self.mu_0, min_fourier_samples)
     
-    def _project_Fourier_basis_FFT(self, func, min_fourier_samples=200, project_on=None):
+    def _project_Fourier_basis_FFT(self, func, min_fourier_samples=200, project_on=None, d=None):
         """
         Improved function using fftshift and proper indexing.
         """
         if project_on is None:
             project_on = self.L
+        if d is None:
+            d = self.d
 
         samples = 2**int(np.ceil(np.log2(max(min_fourier_samples, 2 * project_on + 1))))
-        x = (np.arange(samples) + 0.5) * self.d / samples
+        x = (np.arange(samples) + 0.5) * d / samples
         f = func(x)
         c_fft = fftshift(fft(f))
         k_indices = np.arange(-samples//2, samples//2)
-        c_fft *= np.exp(-1j * np.pi * k_indices / samples) * np.sqrt(self.d) / samples
+        c_fft *= np.exp(-1j * np.pi * k_indices / samples) * np.sqrt(d) / samples
         start_idx = samples//2 - project_on
         end_idx = samples//2 + project_on + 1
         c = c_fft[start_idx:end_idx]
@@ -252,13 +261,10 @@ class McKeanVlasovSolver:
         non_linear_term = (4 * np.pi**2) / (self.d**2) * self.k_vals * T_sum
         return non_linear_term
 
-    def _compute_K_matrix(self, bar_mu_k=None):
+    def _compute_K_matrix(self, bar_mu_k):
         """
         Compute the matrix K = <mu_bar(W' * phi_j) + phi_j(W' * mu_bar), phi_i'>
         """
-        if bar_mu_k is None:
-            bar_mu_k = self.bar_mu_k
-
         self.K = np.zeros((self.N, self.N), dtype=np.complex128)
         for k_idx in range(self.N):
             l_idx = np.arange(max(0, k_idx - self.L),  min(k_idx + self.L, 2*self.L) + 1)
