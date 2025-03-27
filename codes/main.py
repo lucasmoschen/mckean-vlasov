@@ -93,6 +93,7 @@ class McKeanVlasovSolver:
             self.a0 = self.mu0_projected - self.bar_mu_k
             self.B = -np.einsum('ijk,k->ji', self.Psi, self.bar_mu_k)
         else:
+            self.bar_mu_k = final_distribution
             self._compute_K_matrix(final_distribution, frechet_flag)
             self.a0 = self.mu0_projected - final_distribution
             self.B = -np.einsum('ijk,k->ji', self.Psi, final_distribution)
