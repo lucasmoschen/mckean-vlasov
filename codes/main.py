@@ -1,16 +1,14 @@
 import numpy as np
-from scipy.integrate import solve_ivp
 from scipy.linalg import solve_continuous_are
-from scipy.optimize._numdiff import approx_derivative
+from scipy.integrate import solve_ivp
 from scipy.optimize import fsolve, root
 from scipy.special import beta
-from scipy.fft import fft, fftshift
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import seaborn as sns
 import time
 import unittest
-from scipy.linalg import eigvals
+from fourier_utils import FourierUtils
 
 import cProfile
 import pstats
@@ -18,8 +16,10 @@ import io
 
 class McKeanVlasovSolver:
 
-    def __init__(self, L, d, G, alpha, W, mu_0, sigma=1.0, delta=0.0, M=None, grad_alpha=None, min_fourier_samples=200, state_weight=1000, 
-                 bar_mu_k_initial=None, final_distribution=None):
+    def __init__(self, L, d, G, alpha, W, mu_0, 
+                 sigma=1.0, delta=0.0, M=None, grad_alpha=None, 
+                 min_fourier_samples=200, state_weight=1000, 
+                 bar_mu_k_initial=None, final_distribution=None, frechet_flag=True):
         """
         Initialize the McKean-Vlasov solver.
 
@@ -33,7 +33,12 @@ class McKeanVlasovSolver:
         - sigma: Diffusion coefficient.
         - delta: Parameter delta in the equation.
         - M: Cost matrix M; if None, defaults to the identity matrix.
+        - grad_alpha: Gradient of the alpha functions.
+        - min_fourier_samples: Minimum number of Fourier samples.
+        - state_weight: Weight for the state cost matrix.
+        - bar_mu_k_initial: Initial guess for computing the bar_mu_k using Newton's method.
         - final_distribution: Final distribution to be reached. Should be the coefficients of the Fourier series.
+        - frechet_flag: Flag to indicate if the Frechet derivative should be used.
         """
         self.L = L
         self.d = d
@@ -44,116 +49,69 @@ class McKeanVlasovSolver:
         self.sigma = sigma
         self.delta = delta
         self.grad_alpha = grad_alpha
+        self.min_fourier_samples = min_fourier_samples
 
-        # Define the Fourier basis functions
-        self.k_vals = np.arange(-L, L + 1)
-        self.N = len(self.k_vals)  # Total number of modes
+        # Instantiate Fourier helper
+        self.fourier = FourierUtils(L, d, min_fourier_samples)
+        self.reconstruction = self.fourier.reconstruction
+        self.k_vals = self.fourier.k_vals
+        self.N = self.fourier.N 
+        self.phi_funcs = self.fourier.phi_funcs
 
-        # Compute the orthonormal Fourier basis functions
-        self.phi_funcs = [self._phi_k(k) for k in self.k_vals]
-
-        # Project mu_0 onto the Fourier basis
-        self.mu0_projected = self._project_mu0(min_fourier_samples)
-        # Project W onto the Fourier basis
+        # Project functions onto Fourier basis
+        self.mu0_projected = self.fourier.project_function(self.mu_0)
         assert abs(self.W(0) - self.W(d)) < 1e-10, "W must be periodic"
         assert abs(self.G(0) - self.G(d)) < 1e-10, "G must be periodic"
-        self.w = self._project_Fourier_basis_FFT(self.W, min_fourier_samples)
+        self.w = self.fourier.project_function(self.W)
+
         # Initialize matrices
-        self._compute_LG_matrix(min_fourier_samples)
+        self._compute_LG_matrix()
         self._compute_D_matrix()
 
         if bar_mu_k_initial is None:
             bar_mu_k_initial = np.zeros(self.N, dtype=np.complex128)
         # I should allow the code to compute all the stationary distributions here
         try:
-            self.bar_mu_k = self.compute_bar_mu(method="self-consistency", min_fourier_samples=min_fourier_samples, bar_mu_k_initial=bar_mu_k_initial)
+            self.bar_mu_k = self.compute_bar_mu(method="self-consistency", 
+                                                bar_mu_k_initial=bar_mu_k_initial)
         except Exception as e:
-            print("WARNING - Method Self-Consistency Method didn't work.")
-            print(f"Error: {e}")
-            self.bar_mu_k = self.compute_bar_mu(method="stationary-equation", min_fourier_samples=min_fourier_samples, bar_mu_k_initial=bar_mu_k_initial[self.L+1:])
+            print("WARNING - Self-consistency method failed:", e)
+            self.bar_mu_k = self.compute_bar_mu(method="stationary-equation", 
+                                                bar_mu_k_initial=bar_mu_k_initial[self.L+1:])
 
         # Control-related matrices
-        if type(self.grad_alpha) == str:
-            assert self.grad_alpha == "constant", "Did you mean constant?"
-            self.Psi = np.stack([2*np.pi/self.d * 1j * np.diag(self.k_vals) for _ in range(len(alpha))], axis=0)
+        if isinstance(self.grad_alpha, str) and self.grad_alpha == "constant":
+            self.Psi = np.stack([2 * np.pi / self.d * 1j * np.diag(self.k_vals) for _ in range(len(alpha))], axis=0)
             self.grad_alpha = lambda x: np.full((len(alpha),) + x.shape, 1.0)
-            self.alpha = [lambda x: x - self.d/2 for j in range(len(alpha))]
+            self.alpha = [lambda x: x - self.d/2 for _ in range(len(alpha))]
         else:
-            self._compute_Psi_matrix(min_fourier_samples)
+            self._compute_Psi_matrix()
         self.Pi = None
 
         if final_distribution is None:
-            self._compute_K_matrix(self.bar_mu_k)
+            self._compute_K_matrix(self.bar_mu_k, frechet_flag)
             self.a0 = self.mu0_projected - self.bar_mu_k
             self.B = -np.einsum('ijk,k->ji', self.Psi, self.bar_mu_k)
         else:
-            self._compute_K_matrix(final_distribution)
+            self._compute_K_matrix(final_distribution, frechet_flag)
             self.a0 = self.mu0_projected - final_distribution
             self.B = -np.einsum('ijk,k->ji', self.Psi, final_distribution)
 
         # Cost matrix M
-        self.M = state_weight * np.identity(self.N) if M is None else M
- 
-    def _integrate(self, f, n_points=1000):
-        """Numerical integration over [0, d] using the trapezoidal rule."""
-        x_vals = np.linspace(0, self.d, n_points)
-        y_vals = f(x_vals)
-        return np.trapezoid(y_vals, x_vals)
-
-    def reconstruction(self, a, x):
-        """
-        Reconstruct a function from coefficients a and points x.
-        """
-        return np.real(np.sum([a[k]*self.phi_funcs[k](x) for k in range(self.N)], axis=0))
-
-    def _phi_k(self, k):
-        """Return the k-th Fourier basis function, scaled to be orthonormal over [0, d]."""
-        return lambda x: np.exp(2*np.pi*1j*k*x/self.d) / np.sqrt(self.d)
-
-    def _project_mu0(self, min_fourier_samples=200):
-        """Project the initial density mu_0 onto the Fourier basis."""
-        return self._project_Fourier_basis_FFT(self.mu_0, min_fourier_samples)
+        self.M = state_weight * np.eye(self.N) if M is None else M
     
-    def _project_Fourier_basis_FFT(self, func, min_fourier_samples=200, project_on=None, d=None):
-        """
-        Improved function using fftshift and proper indexing.
-        """
-        if project_on is None:
-            project_on = self.L
-        if d is None:
-            d = self.d
-
-        samples = 2**int(np.ceil(np.log2(max(min_fourier_samples, 2 * project_on + 1))))
-        x = (np.arange(samples) + 0.5) * d / samples
-        f = func(x)
-        c_fft = fftshift(fft(f))
-        k_indices = np.arange(-samples//2, samples//2)
-        c_fft *= np.exp(-1j * np.pi * k_indices / samples) * np.sqrt(d) / samples
-        start_idx = samples//2 - project_on
-        end_idx = samples//2 + project_on + 1
-        c = c_fft[start_idx:end_idx]
-        return c
-
-    def _grad_finite_differences(self, F):
-        """
-        Compute the gradienf of the function F and returns a function.
-        """
-        h = 1e-6
-        return lambda x: (F(x + h) - F(x - h)) / (2 * h)
-    
-    def compute_bar_mu(self, method="self-consistency", min_fourier_samples=200, bar_mu_k_initial=None):
-
+    def compute_bar_mu(self, method="self-consistency", bar_mu_k_initial=None):
         if method == "self-consistency":
             if bar_mu_k_initial is None:
                 bar_mu_k_initial = np.zeros(self.N, dtype=np.complex128)
-            bar_mu_k = self._self_consistency(min_fourier_samples, bar_mu_k_initial)
+            bar_mu_k = self._self_consistency(bar_mu_k_initial)
         elif method == "stationary-equation":
             if bar_mu_k_initial is None:
                 bar_mu_k_initial = np.zeros(self.L, dtype=np.complex128)
             bar_mu_k = self._stationary_equation(bar_mu_k_initial)
         return bar_mu_k
 
-    def _self_consistency(self, min_fourier_samples, bar_mu_k_initial):
+    def _self_consistency(self, bar_mu_k_initial):
         """Compute the approximation of bar_mu by solving the set of non-linear equations for a complex bar_mu_k."""
         
         def equations(vector):
@@ -161,11 +119,10 @@ class McKeanVlasovSolver:
             exponent = lambda x: -self.G(x)/self.sigma - np.sqrt(self.d)/self.sigma * sum(
                 bar_mu_k[j] * self.w[j] * self.phi_funcs[j](x) for j in range(self.N)
             )
-            integral_terms = self._project_Fourier_basis_FFT(lambda x: np.exp(exponent(x)), min_fourier_samples)
-            Z = self._integrate(lambda x: np.exp(exponent(x)))
+            integral_terms = self.fourier.project_function(lambda x: np.exp(exponent(x)), project_on=self.L)
+            Z = self.fourier.integrate(lambda x: np.exp(exponent(x)))
             residual = integral_terms / Z - bar_mu_k
-            residuals = np.hstack([residual.real, residual.imag])
-            return residuals
+            return np.hstack([residual.real, residual.imag])
 
         vector_initial = np.hstack([bar_mu_k_initial.real, bar_mu_k_initial.imag])
         
@@ -174,10 +131,8 @@ class McKeanVlasovSolver:
             vector_initial, 
             full_output=True
         )
-
         if ier != 1:
             raise ValueError("Nonlinear solver did not converge: " + mesg)
-        
         return sol[:self.N] + 1j * sol[self.N:] 
 
     def _stationary_equation(self, bar_mu_k_initial):
@@ -207,12 +162,12 @@ class McKeanVlasovSolver:
         ])
         return bar_mu_k
 
-    def _compute_LG_matrix(self, min_fourier_samples):
+    def _compute_LG_matrix(self):
         """
         Compute matrix L_G = <phi_j G', phi_i >.
         """
         self.L_G = np.zeros((self.N, self.N), dtype=np.complex128)
-        g_coeffs = self._project_Fourier_basis_FFT(self.G, project_on=2*self.L, min_fourier_samples=min_fourier_samples)
+        g_coeffs = self.fourier.project_function(self.G, project_on=2 * self.L)
         l_idx_indexes = np.arange(0, 2*self.L+1)
         for k_idx in range(self.N):
             self.L_G[k_idx, :] = 4*np.pi**2*(k_idx - self.L)/self.d**2 * (k_idx - l_idx_indexes) * g_coeffs[k_idx - l_idx_indexes + 2*self.L] / np.sqrt(self.d)
@@ -224,32 +179,19 @@ class McKeanVlasovSolver:
         diagonal_elements = 4 * np.pi**2 / self.d**2 * self.k_vals ** 2
         self.D = np.diag(diagonal_elements)
 
-    def _compute_Psi_matrix(self, min_fourier_samples):
+    def _compute_Psi_matrix(self):
         """
         Compute matrix Psi = [<phi_j alpha_j', phi_i > for j = 1,...,m]
         """
         self.Psi = []
-        for _, alpha_j in enumerate(self.alpha):
+        for alpha_j in self.alpha:
             Psi_j = np.zeros((self.N, self.N), dtype=np.complex128)
-            alpha_coeffs = self._project_Fourier_basis_FFT(alpha_j, project_on=2*self.L, min_fourier_samples=min_fourier_samples)
+            alpha_coeffs = self.fourier.project_function(alpha_j, project_on=2 * self.L)
             l_idx_indexes = np.arange(0, 2*self.L+1)
             for k_idx in range(self.N):
                 Psi_j[k_idx, :] = 4*np.pi**2*(k_idx - self.L)/self.d**2 * (k_idx - l_idx_indexes) * alpha_coeffs[k_idx - l_idx_indexes + 2*self.L] / np.sqrt(self.d)
             self.Psi.append(Psi_j)
         self.Psi = np.array(self.Psi)
-
-    def _compute_T(self):
-        """
-        Compute the tensor T_{i,k,l}.
-        Notice that this matrix is very sparse. Only N^2 elements are non zero.
-        """
-
-        self.T = np.zeros((self.N, self.N, self.N), dtype=np.complex128)
-        for k_idx in range(self.N):
-            for l_idx in range(self.N):
-                for m_idx in range(self.N):
-                    if m_idx == k_idx - l_idx and abs(k_idx - l_idx) <= self.L:
-                        self.T[k_idx, l_idx, m_idx] = 4*np.pi**2 / self.d**2 * (k_idx-self.L) * (m_idx - self.L) * self.w[m_idx]
 
     def _compute_non_linear_term(self, a):
         """
@@ -258,97 +200,25 @@ class McKeanVlasovSolver:
         """
         c = a * self.w * self.k_vals[::-1]
         T_sum = np.correlate(a, c, mode='same')
-        non_linear_term = (4 * np.pi**2) / (self.d**2) * self.k_vals * T_sum
-        return non_linear_term
+        return (4 * np.pi**2 / self.d**2) * self.k_vals * T_sum
 
-    def _compute_K_matrix(self, bar_mu_k):
+    def _compute_K_matrix(self, bar_mu_k, frechet_flag):
         """
         Compute the matrix K = <mu_bar(W' * phi_j) + phi_j(W' * mu_bar), phi_i'>
         """
         self.K = np.zeros((self.N, self.N), dtype=np.complex128)
-        for k_idx in range(self.N):
-            l_idx = np.arange(max(0, k_idx - self.L),  min(k_idx + self.L, 2*self.L) + 1)
-            self.K[k_idx, l_idx] = 4*np.pi**2 / self.d**2 * (k_idx - self.L) * bar_mu_k[k_idx-l_idx+self.L]
-            self.K[k_idx, l_idx] *= (l_idx - self.L) * self.w[l_idx] + (k_idx - l_idx) * self.w[k_idx-l_idx+self.L]
-        return self.K
-    
-    def _conjugate_wrapper(self, a, c=0.0):
-        return np.hstack([a[:self.L][::-1] - 1j * a[self.L:][::-1], c, a[:self.L] + 1j * a[self.L:]])
-
-    def _conjugate_wrapper_matrix(self, a, c=0.0):
-        output = np.empty((2 * self.L + 1, a.shape[1]), dtype=np.complex128)
-        output[:self.L, :] = a[:self.L, :][::-1] - 1j * a[self.L:, :][::-1]
-        output[self.L, :] = c
-        output[self.L+1:, :] = a[:self.L, :] + 1j * a[self.L:, :]
-        return output
-
-    def _real_wrapper(self, a):
-        return np.hstack([a[self.L+1:].real, a[self.L+1:].imag])
-
-    def linearized_uncontrolled_solver(self, t_span, t_eval=None):
-        """Solve the linearized and uncontrolled McKean-Vlasov equation."""
-        def ode_system(t, a):
-            a = self._conjugate_wrapper(a)
-            derivative = -(self.L_G + self.sigma * self.D + self.K) @ a
-            return self._real_wrapper(derivative)
-        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, atol=1e-10, rtol=1e-10)
-        sol.y = self._conjugate_wrapper_matrix(sol.y)
-        return sol
-    
-    def nonlinear_uncontrolled_solver_y(self, t_span, t_eval=None):
-        """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
-        def ode_system(t, a):
-            a = self._conjugate_wrapper(a)
-            nonlinear_term = self._compute_non_linear_term(a)
-            derivative = -(self.L_G + self.sigma * self.D + self.K) @ a - nonlinear_term
-            return self._real_wrapper(derivative)
-        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, atol=1e-10, rtol=1e-10)
-        sol.y = self._conjugate_wrapper_matrix(sol.y)
-        return sol
-
-    def nonlinear_uncontrolled_solver_mu(self, t_span, t_eval=None):
-        """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
-        def ode_system(t, a):
-            a = self._conjugate_wrapper(a, c=1/np.sqrt(self.d))
-            nonlinear_term = self._compute_non_linear_term(a)
-            derivative = -(self.L_G + self.sigma * self.D) @ a - nonlinear_term
-            return self._real_wrapper(derivative)
-        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.mu0_projected), t_eval=t_eval, atol=1e-10, rtol=1e-10)
-        sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
-        return sol
-
-    def nonlinear_controlled_solver_mu(self, t_span, t_eval=None, u=None):
-        """Solve the non-linear and uncontrolled McKean-Vlasov equation."""
-        def ode_system(t, a, u):
-            a = self._conjugate_wrapper(a, c=1/np.sqrt(self.d))
-            nonlinear_term = self._compute_non_linear_term(a)
-            derivative = -(self.L_G + self.sigma * self.D + np.einsum('ijk,i->jk', self.Psi, u(t,a))) @ a - nonlinear_term
-            return self._real_wrapper(derivative)
-        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.mu0_projected), t_eval=t_eval, args=(u,), atol=1e-10, rtol=1e-10)
-        sol.y = self._conjugate_wrapper_matrix(sol.y, c=1/np.sqrt(self.d))
-        return sol
-
-    def nonlinear_controlled_solver_y(self, t_span, t_eval=None, u=None):
-        """Solve the non-linear and controlled McKean-Vlasov equation for y."""
-        def ode_system(t, a, u):
-            a = self._conjugate_wrapper(a)
-            nonlinear_term = self._compute_non_linear_term(a)
-            derivative = -(self.L_G + self.sigma * self.D + self.K + np.einsum('ijk,i->jk', self.Psi, u(t,a))) @ a
-            derivative += -nonlinear_term + self.B @ u(t,a)
-            return self._real_wrapper(derivative)
-        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, args=(u,), atol=1e-10, rtol=1e-10)
-        sol.y = self._conjugate_wrapper_matrix(sol.y)
-        return sol
-
-    def linear_controlled_solver_y(self, t_span, t_eval=None, u=None):
-        """Solve the linear and controlled McKean-Vlasov equation for y."""
-        def ode_system(t, a, u):
-            a = self._conjugate_wrapper(a)
-            derivative = -(self.L_G + self.sigma * self.D + self.K) @ a + self.B @ u(t,a) + self.delta * a
-            return self._real_wrapper(derivative)
-        sol = solve_ivp(ode_system, t_span, self._real_wrapper(self.a0), t_eval=t_eval, args=(u,), atol=1e-10, rtol=1e-10)
-        sol.y = self._conjugate_wrapper_matrix(sol.y)
-        return sol
+        if frechet_flag:
+            for k_idx in range(self.N):
+                l_idx = np.arange(max(0, k_idx - self.L),  min(k_idx + self.L, 2*self.L) + 1)
+                self.K[k_idx, l_idx] = 4*np.pi**2 / self.d**2 * (k_idx - self.L) * bar_mu_k[k_idx-l_idx+self.L]
+                self.K[k_idx, l_idx] *= (l_idx - self.L) * self.w[l_idx] + (k_idx - l_idx) * self.w[k_idx-l_idx+self.L]
+            return self.K
+        else:
+            for k_idx in range(self.N):
+                l_idx = np.arange(max(0, k_idx - self.L),  min(k_idx + self.L, 2*self.L) + 1)
+                self.K[k_idx, l_idx] = 4*np.pi**2 / self.d**2 * (k_idx - self.L) * bar_mu_k[k_idx-l_idx+self.L]
+                self.K[k_idx, l_idx] *= (k_idx - l_idx) * self.w[k_idx-l_idx+self.L]
+            return self.K
 
     def solve_riccati(self):
         """Solve the Riccati equation to compute Pi."""
@@ -359,24 +229,6 @@ class McKeanVlasovSolver:
         self.Pi = solve_continuous_are(
             A, self.B, self.M, np.eye(self.B.shape[1])
         )
-
-    def solve_control_linearized_problem(self, t_span, t_eval=None):
-        """Solve the linearized and controlled McKean-Vlasov equation."""
-        if self.Pi is None:
-            self.solve_riccati()
-        sol = self.linear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -np.real(self.B.conj().T @ self.Pi @ a))
-        return sol
-
-    def solve_control_problem(self, t_span, t_eval=None):
-        """Solve the non-linear and controlled McKean-Vlasov equation."""
-        t0 = time.time()
-        if self.Pi is None:
-            self.solve_riccati()
-            t1 = time.time()
-            print("MESSAGE - Ricatti equation solved in {:.2f}.".format(t1 - t0))
-        sol = self.nonlinear_controlled_solver_y(t_span, t_eval, u=lambda t,a: -np.real(self.B.conj().T @ self.Pi @ a))
-        print("MESSAGE - Nonlinear equation solved in {:.2f}.".format(time.time() - t0))
-        return sol
 
     def check_are_conditions(self, A, B, Q, R):
         """
@@ -425,6 +277,81 @@ class McKeanVlasovSolver:
             assert rank_C == A.shape[0], \
                     "The pair (A, B) is not stabilizable, rank(C) = {} < rank(A) = {}, eigenvalues = {}".format(rank_C, A.shape[0], unstable_eigenvalues)
         print("MESSAGE - All conditions satisfied. Matrices are suitable for solving the ARE.")
+
+    def _solve_ode(self, ode_func, ic, t_span, t_eval, c=0.0, ode_args=()):
+        """
+        Helper to solve an ODE by converting between the complex formulation and
+        its real representation.
+        """
+        real_ic = self.fourier.real_wrapper(ic, c=c) if c != 0.0 else self.fourier.real_wrapper(ic)
+        sol = solve_ivp(lambda t, a: ode_func(t, a, *ode_args), t_span, real_ic,
+                        t_eval=t_eval, atol=1e-10, rtol=1e-10)
+        sol.y = self.fourier.conjugate_wrapper_matrix(sol.y, c=c)
+        return sol
+
+    def linearized_uncontrolled_solver(self, t_span, t_eval=None):
+        def ode_system(t, a, *args):
+            a_complex = self.fourier.conjugate_wrapper(a)
+            deriv = -(self.L_G + self.sigma * self.D + self.K) @ a_complex + self.delta * a_complex
+            return self.fourier.real_wrapper(deriv)
+        return self._solve_ode(ode_system, self.a0, t_span, t_eval)
+
+    def nonlinear_uncontrolled_solver_y(self, t_span, t_eval=None):
+        def ode_system(t, a, *args):
+            a_complex = self.fourier.conjugate_wrapper(a)
+            nonlinear_term = self._compute_non_linear_term(a_complex)
+            deriv = -(self.L_G + self.sigma * self.D + self.K) @ a_complex - nonlinear_term
+            return self.fourier.real_wrapper(deriv)
+        return self._solve_ode(ode_system, self.a0, t_span, t_eval)
+
+    def nonlinear_uncontrolled_solver_mu(self, t_span, t_eval=None):
+        def ode_system(t, a, *args):
+            a_complex = self.fourier.conjugate_wrapper(a, c=1 / np.sqrt(self.d))
+            nonlinear_term = self._compute_non_linear_term(a_complex)
+            deriv = -(self.L_G + self.sigma * self.D) @ a_complex - nonlinear_term
+            return self.fourier.real_wrapper(deriv, c=1 / np.sqrt(self.d))
+        return self._solve_ode(ode_system, self.mu0_projected, t_span, t_eval, c=1 / np.sqrt(self.d))
+
+    def nonlinear_controlled_solver_mu(self, t_span, t_eval=None, u=None):
+        def ode_system(t, a, u):
+            a_complex = self.fourier.conjugate_wrapper(a, c=1 / np.sqrt(self.d))
+            nonlinear_term = self._compute_non_linear_term(a_complex)
+            deriv = -(self.L_G + self.sigma * self.D + np.einsum('ijk,i->jk', self.Psi, u(t, a_complex))) @ a_complex - nonlinear_term
+            return self.fourier.real_wrapper(deriv, c=1 / np.sqrt(self.d))
+        return self._solve_ode(ode_system, self.mu0_projected, t_span, t_eval, c=1 / np.sqrt(self.d), ode_args=(u,))
+
+    def nonlinear_controlled_solver_y(self, t_span, t_eval=None, u=None):
+        def ode_system(t, a, u):
+            a_complex = self.fourier.conjugate_wrapper(a)
+            nonlinear_term = self._compute_non_linear_term(a_complex)
+            deriv = -(self.L_G + self.sigma * self.D + self.K + np.einsum('ijk,i->jk', self.Psi, u(t, a_complex))) @ a_complex
+            
+            deriv += -nonlinear_term + self.B @ u(t, a_complex)
+            return self.fourier.real_wrapper(deriv)
+        return self._solve_ode(ode_system, self.a0, t_span, t_eval, ode_args=(u,))
+
+    def linear_controlled_solver_y(self, t_span, t_eval=None, u=None):
+        def ode_system(t, a, u):
+            a_complex = self.fourier.conjugate_wrapper(a)
+            deriv = -(self.L_G + self.sigma * self.D + self.K) @ a_complex + self.B @ u(t, a_complex) + self.delta * a_complex
+            return self.fourier.real_wrapper(deriv)
+        return self._solve_ode(ode_system, self.a0, t_span, t_eval, ode_args=(u,))
+
+    def solve_control_linearized_problem(self, t_span, t_eval=None):
+        if self.Pi is None:
+            self.solve_riccati()
+        return self.linear_controlled_solver_y(t_span, t_eval,
+            u=lambda t, a: -np.real(self.B.conj().T @ self.Pi @ a))
+
+    def solve_control_problem(self, t_span, t_eval=None):
+        t0 = time.time()
+        if self.Pi is None:
+            self.solve_riccati()
+            print("MESSAGE - Riccati equation solved in {:.2f} seconds.".format(time.time() - t0))
+        sol = self.nonlinear_controlled_solver_y(t_span, t_eval,
+            u=lambda t, a: -np.real(self.B.conj().T @ self.Pi @ a))
+        print("MESSAGE - Nonlinear equation solved in {:.2f} seconds.".format(time.time() - t0))
+        return sol
 
 class TestImpromentFunction(unittest.TestCase):
     
@@ -525,19 +452,24 @@ class McKeanVlasovPlotter:
         data = np.array([self.solver.reconstruction(solution.y[:, i], x) for i in t_indices]).T
         self.plot_function_over_time(x, data, solution.t[t_indices], '$y(x, t)$', 'Nonlinear Uncontrolled $y(x, t)$ for different times')
 
-    def plot_mu_bar_x(self):
+    def plot_mu_bar_x(self, name=None):
         x = np.linspace(0, self.solver.d, 1000)
         mu_bar = self.solver.reconstruction(self.solver.bar_mu_k, x)
         mu0 = self.solver.reconstruction(self.solver.mu0_projected, x)
-        plt.figure()
+        plt.figure(figsize=(6,3))
         plt.plot(x, mu_bar, label=r'$\bar{\mu}(x)$')
         plt.plot(x, mu0, label=r'$\mu_0(x)$')
         plt.xlabel('$x$', fontsize=14)
         plt.title(r'Plot of $\bar{\mu}(x)$ and $\mu_0(x)$')
         plt.legend()
-        plt.show()
+        plt.tight_layout()
 
-    def plot_control_and_norm(self, t_max):
+        if name is not None:
+            plt.savefig(name, format='PDF', bbox_inches='tight')
+        else:
+            plt.show()
+
+    def plot_control_and_norm(self, t_max, name=None):
         # Generate the control function values
         solution = self.solver.solve_control_problem(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(500, int(np.ceil(t_max * 100)))))
         solution2 = self.solver.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=np.linspace(0, t_max, max(500, int(np.ceil(t_max * 100)))))
@@ -549,7 +481,7 @@ class McKeanVlasovPlotter:
         y_norm2 = np.linalg.norm(solution2.y, axis=0)
 
         # Creating the subplot figure
-        _, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+        _, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 4))
 
         # Plotting ||y(., t)||_{L^2} over time
         ax1.plot(t_points, y_norm, color="#0072B2", label="Controlled")
@@ -558,7 +490,7 @@ class McKeanVlasovPlotter:
         ax1.set_ylabel('$||y(., t)||_{L^2}$', fontsize=14)
         ax1.set_title('Norm of $y(t)$ over Time', fontsize=18)
         ax1.set_yscale("log")
-        ax1.legend()
+        ax1.legend(fontsize=15)
 
         # Plotting the control function
         for j in range(len(self.solver.alpha)):
@@ -567,11 +499,14 @@ class McKeanVlasovPlotter:
         ax2.set_ylabel('Control $u(t)$', fontsize=14)
         ax2.set_title(r'Control Functions over Time for each $\alpha$', fontsize=18)
         ax2.set_yscale("log")
-        ax2.legend()
+        ax2.legend(fontsize=15)
 
         # Display the plots
         plt.tight_layout()
-        plt.show()
+        if name is not None:
+            plt.savefig(name, format='PDF', bbox_inches='tight')
+        else:
+            plt.show()
 
     def plot_control_and_norm_linear(self, t_max):
         # Generate the control function values
