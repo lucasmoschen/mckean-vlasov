@@ -25,8 +25,8 @@ class FourierUtils:
 
     def project_function(self, func, project_on=None, d=None):
         """
-        Project a function onto the Fourier basis using FFT.
-        Uses fftshift for proper indexing.
+        Project a function onto the Fourier basis using FFT,
+        using the trapezoidal rule for integration.
         """
         if project_on is None:
             project_on = self.L
@@ -34,11 +34,12 @@ class FourierUtils:
             d = self.d
 
         samples = 2 ** int(np.ceil(np.log2(max(self.min_fourier_samples, 2 * project_on + 1))))
-        x = (np.arange(samples) + 0.5) * d / samples
+        # Trapezoidal rule: sample on the grid 0, d/samples, ..., d*(samples-1)/samples.
+        x = np.arange(samples) * d / samples
         f = func(x)
         c_fft = fftshift(fft(f))
-        k_indices = np.arange(-samples // 2, samples // 2)
-        c_fft *= np.exp(-1j * np.pi * k_indices / samples) * np.sqrt(d) / samples
+        # Remove the extra phase factor (only needed for midpoint sampling)
+        c_fft *= np.sqrt(d) / samples
         start_idx = samples // 2 - project_on
         end_idx = samples // 2 + project_on + 1
         return c_fft[start_idx:end_idx]

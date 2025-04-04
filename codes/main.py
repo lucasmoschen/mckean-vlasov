@@ -19,7 +19,8 @@ class McKeanVlasovSolver:
     def __init__(self, L, d, G, alpha, W, mu_0, 
                  sigma=1.0, delta=0.0, M=None, grad_alpha=None, 
                  min_fourier_samples=200, state_weight=1000, 
-                 bar_mu_k_initial=None, final_distribution=None, frechet_flag=True):
+                 bar_mu_k_initial=None, final_distribution=None, frechet_flag=True,
+                 w_coeffs=None):
         """
         Initialize the McKean-Vlasov solver.
 
@@ -39,6 +40,7 @@ class McKeanVlasovSolver:
         - bar_mu_k_initial: Initial guess for computing the bar_mu_k using Newton's method.
         - final_distribution: Final distribution to be reached. Should be the coefficients of the Fourier series.
         - frechet_flag: Flag to indicate if the Frechet derivative should be used.
+        - w_coeffs: Coefficients for the Fourier series of W.
         """
         self.L = L
         self.d = d
@@ -62,7 +64,10 @@ class McKeanVlasovSolver:
         self.mu0_projected = self.fourier.project_function(self.mu_0)
         assert abs(self.W(0) - self.W(d)) < 1e-10, "W must be periodic"
         assert abs(self.G(0) - self.G(d)) < 1e-10, "G must be periodic"
-        self.w = self.fourier.project_function(self.W)
+        if w_coeffs is None:
+            self.w = self.fourier.project_function(self.W)
+        else:
+            self.w = w_coeffs
 
         # Initialize matrices
         self._compute_LG_matrix()
@@ -89,12 +94,12 @@ class McKeanVlasovSolver:
         self.Pi = None
 
         if final_distribution is None:
-            self._compute_K_matrix(self.bar_mu_k, frechet_flag)
+            self.K = self._compute_K_matrix(self.bar_mu_k, frechet_flag)
             self.a0 = self.mu0_projected - self.bar_mu_k
             self.B = -np.einsum('ijk,k->ji', self.Psi, self.bar_mu_k)
         else:
             self.bar_mu_k = final_distribution
-            self._compute_K_matrix(final_distribution, frechet_flag)
+            self.K = self._compute_K_matrix(final_distribution, frechet_flag)
             self.a0 = self.mu0_projected - final_distribution
             self.B = -np.einsum('ijk,k->ji', self.Psi, final_distribution)
 
@@ -207,19 +212,19 @@ class McKeanVlasovSolver:
         """
         Compute the matrix K = <mu_bar(W' * phi_j) + phi_j(W' * mu_bar), phi_i'>
         """
-        self.K = np.zeros((self.N, self.N), dtype=np.complex128)
+        K = np.zeros((self.N, self.N), dtype=np.complex128)
         if frechet_flag:
             for k_idx in range(self.N):
                 l_idx = np.arange(max(0, k_idx - self.L),  min(k_idx + self.L, 2*self.L) + 1)
-                self.K[k_idx, l_idx] = 4*np.pi**2 / self.d**2 * (k_idx - self.L) * bar_mu_k[k_idx-l_idx+self.L]
-                self.K[k_idx, l_idx] *= (l_idx - self.L) * self.w[l_idx] + (k_idx - l_idx) * self.w[k_idx-l_idx+self.L]
-            return self.K
+                K[k_idx, l_idx] = 4*np.pi**2 / self.d**2 * (k_idx - self.L) * bar_mu_k[k_idx-l_idx+self.L]
+                K[k_idx, l_idx] *= (l_idx - self.L) * self.w[l_idx] + (k_idx - l_idx) * self.w[k_idx-l_idx+self.L]
+            return K
         else:
             for k_idx in range(self.N):
                 l_idx = np.arange(max(0, k_idx - self.L),  min(k_idx + self.L, 2*self.L) + 1)
-                self.K[k_idx, l_idx] = 4*np.pi**2 / self.d**2 * (k_idx - self.L) * bar_mu_k[k_idx-l_idx+self.L]
-                self.K[k_idx, l_idx] *= (k_idx - l_idx) * self.w[k_idx-l_idx+self.L]
-            return self.K
+                K[k_idx, l_idx] = 4*np.pi**2 / self.d**2 * (k_idx - self.L) * bar_mu_k[k_idx-l_idx+self.L]
+                K[k_idx, l_idx] *= (k_idx - l_idx) * self.w[k_idx-l_idx+self.L]
+            return K
 
     def solve_riccati(self):
         """Solve the Riccati equation to compute Pi."""
