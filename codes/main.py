@@ -18,8 +18,8 @@ class McKeanVlasovSolver:
 
     def __init__(self, L, d, G, alpha, W, mu_0, 
                  sigma=1.0, delta=0.0, M=None, grad_alpha=None, 
-                 min_fourier_samples=200, state_weight=1000, 
-                 bar_mu_k_initial=None, final_distribution=None, frechet_flag=True,
+                 min_fourier_samples=200, state_weight=1000,
+                 bar_mu_k_initial=None, final_distribution=None,
                  w_coeffs=None):
         """
         Initialize the McKean-Vlasov solver.
@@ -39,7 +39,6 @@ class McKeanVlasovSolver:
         - state_weight: Weight for the state cost matrix.
         - bar_mu_k_initial: Initial guess for computing the bar_mu_k using Newton's method.
         - final_distribution: Final distribution to be reached. Should be the coefficients of the Fourier series.
-        - frechet_flag: Flag to indicate if the Frechet derivative should be used.
         - w_coeffs: Coefficients for the Fourier series of W.
         """
         self.L = L
@@ -94,12 +93,12 @@ class McKeanVlasovSolver:
         self.Pi = None
 
         if final_distribution is None:
-            self.K = self._compute_K_matrix(self.bar_mu_k, frechet_flag)
+            self.K, self.K1 = self._compute_K_matrix(self.bar_mu_k)
             self.a0 = self.mu0_projected - self.bar_mu_k
             self.B = -np.einsum('ijk,k->ji', self.Psi, self.bar_mu_k)
         else:
             self.bar_mu_k = final_distribution
-            self.K = self._compute_K_matrix(final_distribution, frechet_flag)
+            self.K, self.K1 = self._compute_K_matrix(final_distribution)
             self.a0 = self.mu0_projected - final_distribution
             self.B = -np.einsum('ijk,k->ji', self.Psi, final_distribution)
 
@@ -179,7 +178,7 @@ class McKeanVlasovSolver:
             self.L_G[k_idx, :] = 4*np.pi**2*(k_idx - self.L)/self.d**2 * (k_idx - l_idx_indexes) * g_coeffs[k_idx - l_idx_indexes + 2*self.L] / np.sqrt(self.d)
 
     def _compute_D_matrix(self):
-        """
+        """  
         Compute matrix D = <phi_j', phi_i'>.
         """
         diagonal_elements = 4 * np.pi**2 / self.d**2 * self.k_vals ** 2
@@ -207,28 +206,47 @@ class McKeanVlasovSolver:
         c = a * self.w * self.k_vals[::-1]
         T_sum = np.correlate(a, c, mode='same')
         return (4 * np.pi**2 / self.d**2) * self.k_vals * T_sum
+    
+    def _compute_K1_matrix(self, bar_mu_k):
+        """
+        I am writing K = K_1 + K_2 if frechet_flag is True, and K= K_1 if frechet_flag is False.
+        """
+        K1 = np.zeros((self.N, self.N), dtype=np.complex128)
+        for k_idx in range(self.N):
+            l_idx = np.arange(max(0, k_idx - self.L), min(k_idx + self.L, 2*self.L) + 1)
+            diff = k_idx - l_idx
+            base = 4*np.pi**2 / self.d**2 * (k_idx - self.L) * bar_mu_k[diff + self.L]
+            weights = diff * self.w[diff + self.L]
+            K1[k_idx, l_idx] = base * weights
+        return K1
+    
+    def _compute_K2_matrix(self, bar_mu_k):
+        """
+        I am writing K = K_1 + K_2 if frechet_flag is True, and K= K_1 if frechet_flag is False.
+        """
+        K2 = np.zeros((self.N, self.N), dtype=np.complex128)
+        for k_idx in range(self.N):
+            l_idx = np.arange(max(0, k_idx - self.L), min(k_idx + self.L, 2 * self.L) + 1)
+            diff = k_idx - l_idx
+            base = 4*np.pi**2 / self.d**2 * (k_idx - self.L) * bar_mu_k[diff + self.L]
+            weights = (l_idx - self.L) * self.w[l_idx]
+            K2[k_idx, l_idx] = base * weights
+        return K2
 
-    def _compute_K_matrix(self, bar_mu_k, frechet_flag):
+    def _compute_K_matrix(self, bar_mu_k):
         """
         Compute the matrix K = <mu_bar(W' * phi_j) + phi_j(W' * mu_bar), phi_i'>
         """
-        K = np.zeros((self.N, self.N), dtype=np.complex128)
-        if frechet_flag:
-            for k_idx in range(self.N):
-                l_idx = np.arange(max(0, k_idx - self.L),  min(k_idx + self.L, 2*self.L) + 1)
-                K[k_idx, l_idx] = 4*np.pi**2 / self.d**2 * (k_idx - self.L) * bar_mu_k[k_idx-l_idx+self.L]
-                K[k_idx, l_idx] *= (l_idx - self.L) * self.w[l_idx] + (k_idx - l_idx) * self.w[k_idx-l_idx+self.L]
-            return K
-        else:
-            for k_idx in range(self.N):
-                l_idx = np.arange(max(0, k_idx - self.L),  min(k_idx + self.L, 2*self.L) + 1)
-                K[k_idx, l_idx] = 4*np.pi**2 / self.d**2 * (k_idx - self.L) * bar_mu_k[k_idx-l_idx+self.L]
-                K[k_idx, l_idx] *= (k_idx - l_idx) * self.w[k_idx-l_idx+self.L]
-            return K
-
-    def solve_riccati(self):
+        K1 = self._compute_K1_matrix(bar_mu_k)
+        K2 = self._compute_K2_matrix(bar_mu_k)
+        return K1 + K2, K1
+    
+    def solve_riccati(self, frechet_flag=True):
         """Solve the Riccati equation to compute Pi."""
-        A = -self.L_G - self.sigma * self.D - self.K + self.delta * np.eye(self.L_G.shape[0])
+        if frechet_flag:
+            A = -self.L_G - self.sigma * self.D - self.K + self.delta * np.eye(self.L_G.shape[0])
+        else:
+            A = -self.L_G - self.sigma * self.D - self.K1 + self.delta * np.eye(self.L_G.shape[0])
         
         self.check_are_conditions(A, self.B, self.M, np.eye(self.B.shape[1]))
 
@@ -343,16 +361,16 @@ class McKeanVlasovSolver:
             return self.fourier.real_wrapper(deriv)
         return self._solve_ode(ode_system, self.a0, t_span, t_eval, ode_args=(u,))
 
-    def solve_control_linearized_problem(self, t_span, t_eval=None):
+    def solve_control_linearized_problem(self, t_span, t_eval=None, frechet_flag=True):
         if self.Pi is None:
-            self.solve_riccati()
+            self.solve_riccati(frechet_flag)
         return self.linear_controlled_solver_y(t_span, t_eval,
             u=lambda t, a: -np.real(self.B.conj().T @ self.Pi @ a))
 
-    def solve_control_problem(self, t_span, t_eval=None):
+    def solve_control_problem(self, t_span, t_eval=None, frechet_flag=True):
         t0 = time.time()
         if self.Pi is None:
-            self.solve_riccati()
+            self.solve_riccati(frechet_flag)
             print("MESSAGE - Riccati equation solved in {:.2f} seconds.".format(time.time() - t0))
         sol = self.nonlinear_controlled_solver_y(t_span, t_eval,
             u=lambda t, a: -np.real(self.B.conj().T @ self.Pi @ a))

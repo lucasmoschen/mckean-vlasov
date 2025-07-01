@@ -65,7 +65,7 @@
 }
 
 % Title and Authors
-\title{\Large \bfseries Mean Field Optimal Control Applied to McKean-Vlasov and Fokker-Planck Models}
+\title{\Large \bfseries Relevant Theorems in Analysis and Probability Theory}
 \date{\today}
 \author{Lucas Machado Moschen}
 \affil{\small Department of Mathematics, Imperial College London}
@@ -76,6 +76,10 @@
 
 \newcommand{\R}{\mathbb{R}}
 \newcommand{\bb}[1]{\boldsymbol{#1}}
+\newcommand{\Space}{\mathcal{X}}
+\newcommand{\C}{\mathbb{C}}
+\newcommand{\D}{D}
+\newcommand{\B}{\mathcal{B}}
 
 \newcommand{\ev}{\mathbb{E}}
 \newcommand{\var}{\operatorname{Var}}
@@ -126,7 +130,7 @@
 \newtheorem{remark}{Remark}[section]
 
 \newcommand{\LM}[1]{\textcolor{red}{#1}}
-\renewcommand{\citeauthoryear}[1]{\citeauthor{#1} (\citeyear{#1})}
+
 
 \begin{document}
 
@@ -134,651 +138,86 @@
 
 %\tableofcontents
 
-\section{Introduction}
-
-Partial Differential Equation (PDE)-constrained optimisation is a field in mathematics that focuses on optimising systems described by PDEs. 
-A PDE models the evolution of an unknown function by expressing how the function changes over time and space. 
-These equations model phenomena like pedestrian movement, fluid flow, and population dynamics, thereby facilitating hypothesis testing across various scientific disciplines. 
-After building a model, the next important step is to control its dynamics to guide the system toward a desired outcome while minimizing associated costs.
-
-Mean-field models are examples of PDEs. 
-They represent the average behaviour of systems with a large number of interacting agents by replacing the state of each individual with the average state of all agents. 
-Two common models used in the literature are the McKean-Vlasov and Fokker-Planck equations. 
-Both describe the evolution of the probability distribution of agents over space and time. 
-The McKean-Vlasov equation is more challenging to work with because its dynamics depend on the distribution itself, better capturing mean-field interactions. 
-In contrast, the Fokker-Planck model can represent only a drift and a diffusion process. 
-Previous research has developed methods for controlling the Fokker-Planck equation, driving it to a desired state and accelerating convergence. 
-However, there are insufficient methods to control the McKean-Vlasov equation.
-
-The lack of control methods for the McKean-Vlasov equation poses gaps in the literature. 
-The existing techniques have been developed for the Fokker-Planck equation, but these methods do not necessarily extend to the McKean-Vlasov equation because the McKean-Vlasov equation explicitly depends on the distribution of agents. 
-Even when attempts are made to apply these methods, there is often a shortage of rigorous theoretical verification that they work and specialized numerical algorithms to the McKean-Vlasov equation. 
-Additionally, many existing approaches, even for the Fokker-Planck equation, assume that the control function depends solely on time, which limits their applicability. 
-Therefore, there is a need to develop robust theoretical frameworks and efficient numerical methods specifically to control the McKean-Vlasov equation.
-
-Our research aims to develop improved control methods for the McKean-Vlasov and Fokker-Planck equations by employing more efficient numerical analysis techniques. 
-By creating and studying algorithms to solve the control problem and approximate these PDEs more effectively, we want to accelerate the convergence of the models to a desired state. 
-This will reduce computational costs when applying mean-field optimal control to large-scale systems. 
-In addition, other scientific areas, such as physics, economy, and biology, could apply these methods to their specific goals.
-
-
-\section{Mean-Field PDE Models}
-
-Mean-field theory examines the behavior of systems composed of a large number of interacting particles or agents through the formulation of {\em mean-field models}. 
-These models simplify the detailed dynamics of all individuals into one or two equations by averaging the dynamics of each individual, which can capture various attributes, such as position or velocity, for example.
-Mean-field models appear in several fields, including physics ({\it e.g.}, plasma dynamics), biology ({\it e.g.}, flocking) and social sciences ({\it e.g.}, consensus formation).
-In many cases, one begins with microscopic models governed by ordinary differential equations (ODEs) or stochastic differential equations (SDEs) and considers the case where the number of particles grows unbounded.
-Usually, the models converge to a continuum description governed by PDEs.
-Two classical derivations are the {\em transport-type equations} and the {\em Vlasov-type equations}. 
-The former arises from deterministic ODE models of interacting particles, while the latter is derived from SDE models in which randomness is introduced through a Brownian motion.
-Together, these models provide a framework to understand how local interaction rules can lead to emergent collective behaviour, such as the formation of flocks.
-
-In transport-type models, some of the seminal works came from \citeauthor{vicsek1995novel} (\citeyear{vicsek1995novel}), \citeauthor{cucker2007emergent} (\citeyear{cucker2007emergent}), and \citeauthor{motsch2011new} (\citeyear{motsch2011new}).
-\citeauthor{vicsek1995novel} (\citeyear{vicsek1995novel}) introduced the Vicsek model, where each particle adjusts its direction to align with that of its neighbours. 
-The authors demonstrated how a small perturbation can trigger large-scale collective motion and show a phase transition between disordered and highly aligned states.
-\citeauthor{cucker2007emergent} (\citeyear{cucker2007emergent}) discussed the Cucker–Smale model, establishing rigorous conditions under which the velocities of agents align over time and a cohesive flocking state emerges.
-\citeauthor{motsch2011new} (\citeyear{motsch2011new}) proposed a variant of the Cucker–Smale system. 
-Their analysis provided an understanding of the mechanisms that promote velocity alignment and studies how the interplay of interaction topologies influences flocking phenomena.
-A review of this topic is given by \citeauthor{golse2016dynamics} (\citeyear{golse2016dynamics}).
-
-On the SDE-based side of mean-field modelling, which culminates in Vlasov-type PDEs, there are the seminal studies by \citeauthor{mckean1969propagation} (\citeyear{mckean1969propagation}), \citeauthor{braun1977vlasov} (\citeyear{braun1977vlasov}), and \citeauthor{sznitman1991topics} (\citeyear{sznitman1991topics}).
-In particular, these works employ the concept of propagation of chaos to show that, as the number of particles grows unbounded, the empirical measure converges to a deterministic equation describing the evolution of the one-particle density.
-In this text, we briefly outline the derivation of these Vlasov-type equations and discuss their fundamental analytical properties, including existence, uniqueness, and stability.
-
-We consider a system of \(N\) interchangeable particles \(\{X_t^i\}_{i=1}^N \subseteq \mathbb{R}^d\), each evolving according to the SDE
-\begin{equation}
-    \label{eq:particle_system}
-    \mathrm{d}X_t^i = -\nabla V\bigl(X_t^i\bigr)\,\mathrm{d}t - \frac{1}{N}\sum_{j=1}^N \nabla W\bigl(X_t^i, X_t^j\bigr)\,\mathrm{d}t + \sigma\,\mathrm{d}B_t^i,
-\quad i = 1,\ldots,N,
-\end{equation}
-where \(\{B_t^i\}_{i=1}^N\) are independent standard Brownian motions in \(\mathbb{R}^d\), $V$ is a confining potential, $W$ is a interaction potential, and \(\sigma>0\) denotes the noise intensity.
-The intensity is related to the temperature of the system.
-
-We then define the \emph{empirical measure}
-$
-\mu_N(t) = \frac{1}{N} \sum_{i=1}^N \delta_{X_t^i},
-$
-which encodes the distribution of the particles at time \(t\). 
-Under suitable regularity conditions on \(b\) and \(K\), it is well known ({\it cf.} \citeauthor{mckean1969propagation} (\citeyear{mckean1969propagation})) that as \(N\to\infty\), the measure \(\mu_N(t)\) converges (in an appropriate sense) to a deterministic probability density \(\rho(t,x)\). 
-This density solves the McKean-Vlasov equation, also known as the Vlasov-Fokker-Planck equation,
-\begin{equation}
-    \label{eq:pde_model}
-    \frac{\partial \rho}{\partial t}(t,x) - \nabla_x \cdot \Bigl[\rho(t,x)\,\Bigl(\nabla V(x) + \int_{\mathbb{R}^d} \nabla W(x,y)\,\rho(t,y)\,\mathrm{d}y\Bigr)\Bigr] = \frac{\sigma^2}{2}\,\Delta_x \,\rho(t,x), \quad x \in \mathbb{R}^d,\; t > 0.
-\end{equation}
-
-Under suitable Lipschitz conditions on $\nabla V$ and $\nabla W$, classical theory guarantees the existence and uniqueness of strong solutions to the McKean–Vlasov equation in various functional settings, including \(L^1(\mathbb{R}^d\)) and weighted Sobolev spaces.
-Proofs commonly use fixed-point arguments in spaces of probability measures equipped with the Wasserstein or total variation distance \cite{carrillo2009many, jabin2008note}. 
-Logarithmic Sobolev inequalities can be used to establish exponential convergence to equilibrium and derive mixing-time estimates \cite{malrieu2001logarithmic, carrillo2009many, carrillo2010framework}.
-Beyond these core properties, McKean–Vlasov equations also appear in synchronization problems—for instance, in the continuum limit of the Kuramoto model \cite{kuramoto1984chemical}, where the resulting Vlasov-type PDE on the circle encodes sinusoidal coupling. 
-Rigorous studies of phase transitions and clustering in this context are provided by \cite{strogatz2000kuramoto, giacomin2018synchronization}, illustrating how coherent structures emerge solely from local interactions.
-
-\section{Optimal Control of Mean-Field Models}
-
-In the context of problems governed by PDEs, solving an optimal control problem consists of minimising or maximising a cost functional that depends on the PDE solution and the control function that acts on the PDE.
-The cost functional should convey a physical concept, such as the energy of the system.
-For instance, if $u(t,x)$ is the control function, we want to minimise
-\[
-J(u) = \int_0^T \int_{\R^d} (L(x,\mu) + \psi(u(t,x))) \, d\mu(t,x) \, dt,
-\]
-where $L$ depends on the state $x$ and the solution to the PDE $\mu$, and $\psi$ weights the control function.
-The control function drives the equation so that the behaviour changes as a function of the controller. 
-Traditional tools from control theory, such as the Pontryagin Maximum Principle (PMP), have been adapted to address PDE constraints \cite{troltzsch2010optimal, aronna2021}. 
-While classical control problems often engage with linear PDEs or affine controls, tackling nonlinear PDEs, particularly the McKean–Vlasov equation, demands substantial theoretical and computational innovation.
-
-\subsection{Mean-Field Optimal Control}
-
-Mean-Field Optimal Control aims to govern systems composed of a large number of interacting agents. 
-Unlike Mean-Field Games, where agents act independently, mean-field optimal control describes problems orchestrated by a centralized entity or controller. 
-This paradigm finds application across various domains: it models market dynamics in economics, particle system behaviour in physics, collective animal movements in biology, and opinion dynamics in social sciences. 
-It extends traditional control theory to handle interactions at the population level, thus framing the optimal control challenges within the context of PDEs.
-
-The seminal work by \citeauthor{Fornasier2013} (\citeyear{Fornasier2013}) established that a finite-dimensional optimal control problem involving multiple agents, governed by ordinary differential equations (ODEs), evolves into an infinite-dimensional problem constrained by a Vlasov-type PDE. 
-The dynamics are given by
-\begin{equation}
-    \begin{cases}
-        \dot{x}_i &= v_i, \\
-        \dot{v}_i &= (H * \mu_N)(x_i, v_i) + u(t,x_i,v_i), \quad i = 1, \dots, N, \quad t \in [0,T],
-    \end{cases}
-\end{equation}
-where \(\mu_N\) represents the empirical measure of agent positions and velocities in \(\R^{2d}\).
-The control function \(u\) aims to minimize the cost functional:
-\begin{equation}
-    J^{N}(u) = \int_0^T \int_{\R^{2d}} (L(x,v,\mu_N) + \psi(u(t,x,v))) \, d\mu_N(t,x,v) \, dt.
-\end{equation}
-As \(N\) approaches infinity, this discrete system converges to a continuous mean-field model governed by a McKean-Vlasov PDE, representing the limit of the $N$-particle model.
-
-\subsection{Controlling the Fokker–Planck and McKean-Vlasov Equations}
-
-The Fokker-Planck equation defines the density of a particle that evolves according to \eqref{eq:particle_system}.
-Control advancements for the Fokker–Planck equation focus on establishing optimality conditions and stabilization methods.
-\citeauthor{aronna2021} (\citeyear{aronna2021}) provided a rigorous derivation of conditions necessary for optimality in control problems constrained by this equation. 
-Additionally, \citeauthor{Breiten2018} (\citeyear{Breiten2018}) investigated stabilization methods using finite-differences to solve the PDE and the Ricatti equation to obtain an optimal feedback control to the linearised problem, enabling effective numerical approximations of the solution and systematic guidance towards desired steady states.
-
-For the McKean-Vlasov equation, addressing the nonlinear dynamics and multiple stationary states, particularly in systems with phase transitions, poses significant challenges. 
-\citeauthor{malrieu2001logarithmic} (\citeyear{malrieu2001logarithmic}) proved that under convexity conditions on $V$ and $W$, there exists only one stationary state and it is exponentially stable. 
-However, without convexity, this is no longer true.
-To handle these cases, \citeauthor{Bicego2024} (\citeyear{Bicego2024}) developed a numerical scheme that identifies all possible steady states of the McKean-Vlasov PDE, employing spectral Galerkin approximations and deflated Newton’s methods to manage the solution multiplicity. 
-This approach supports the development of optimal control strategies targeting specific unstable steady states through iterated open-loop solvers in a receding horizon framework. 
-This methodology has been validated in various models, including the noisy Hegselmann-Krause model for opinion dynamics and the Haken-Kelso-Bunz model from biophysics, demonstrating its capability to stabilize unstable configurations and control collective behaviour effectively.
-
-\section{Contributions and Ongoing Work}
-
-My recent work focuses on developing better control methods for the McKean–Vlasov and Fokker–Planck equations. 
-Drawing from techniques in PDE analysis, numerical approximation, and optimal control theory, I have been:
-
-\begin{itemize}
-    \item Implementing spectral methods in one and two dimensions solving the McKean–Vlasov and Fokker-Planck PDE.
-    I consider periodic boundary conditions in a bounded domain and use the Fourier basis of functions to approximate the solution.
-
-    \item Formulating Riccati-type equations in an infinite-dimensional setting to derive optimal feedback laws and testing their efficiency numerically.
-
-    \item Investigating how small perturbations in the potentials \(V\) and \(W\) or in the control function \(u(t,x)\) influence the system’s convergence rates.
-    In particular, we are interested in examples such as the Kuramoto to verify the ability to accelerate the convergence to the stable state or stabilise around an unstable stationary state.
-
-    \item Deriving conditions under which the controlled McKean–Vlasov equation is guaranteed to converge to the desired state.
-
-\end{itemize}
-
-\newpage
-
-\section{Problem settings}
-
-Consider the following partial differential equation (PDE) model, known as the McKean–Vlasov equation, which describes the evolution of the probability density of a system of agents:
-\[
-\partial_t \mu = \nabla \cdot \left( \mu[(\nabla W * \mu) + \nabla V] \right) + \sigma \Delta \mu,
-\]
-where \( \mu \) is defined on the torus $\Omega$ with periodic boundary conditions.
-The initial distribution of \( \mu \) is given by \( \mu(\cdot, 0) = \mu_0 \). 
-Here, the interaction term \( (W * \mu)(x) \) is defined as
-\[
-(W * \mu)(x) := \int_{\Omega} W(x - y) \, \mu(y) \, dy
-\]
-over the torus, representing the convolution of the communication function \( W \) with the density \( \mu \).
-
-     studied by \citeauthoryear{Carrillo2020}, the McKean–Vlasov equation on the torus exhibits global asymptotic stability of solutions towards a homogeneous steady state. 
-Additionally, the equation allows for nontrivial solutions that can exhibit an infinite number of bifurcations, depending on the interaction potential. 
-The authors establish sufficient conditions under which both continuous and discontinuous phase transitions can occur~\cite{Carrillo2020}.
-In their analysis, the authors apply these theoretical results to a range of interaction potentials used in models like the noisy Kuramoto, Keller–Segel, and noisy Hegselmann-Krausse models, exploring their implications for synchronization, chemotaxis, and opinion dynamics respectively.
-
-Suppose that $W$ is convex, even, and with polynomial growth and that $V$ is uniformly convex, i.e., for some $\beta > 0$, $\nabla^2 V(x) - \beta I$ is a positive-semidefinite matrix.
-Under these conditions, \citeauthoryear{malrieu2001logarithmic} demonstrates that there exist a unique function $\bar{\mu}$ and a constant $K > 0$ such that for all $t >0$, $\|\mu(t,\cdot) - \bar{\mu}\|_{L^1} \le Ke^{-\beta t/2}$, where $\bar{\mu}$ is the unique stationary solution satisfying the detailed balance condition
-\[
-\bar{\mu}(x) = \frac{1}{Z} e^{-\frac{1}{\sigma}\left(V(x) - W * \bar{\mu}(x)\right)}
-\]
-with $Z = \int_{\Omega} e^{-\frac{1}{\sigma}\left(V(y) - W * \bar{\mu}(y)\right)} \, dy$.
-
-We are interested in {\bf controlling} the dynamics described by this equation to accelerate the convergence of $\mu(t,\cdot)$ to the equilibrium of the system, especially in the cases where $\beta$ is small.
-We then take 
-\[
-V(x,t) = G(x) + \sum_{j=1}^{m} \alpha_j(x) u_j(t)
-\]
-for uniformly convex functions $G$ and $m$ functions $\alpha_j$.
-The functions $\alpha_j$ act as a control shape function determining the regions in the space where the time-dependent control function $u_j$ will influence.
-We then introduce the controlled dynamics 
-\begin{equation}
-    \label{eq:controlled_mckean_vlasov}
-    \partial_t \mu = \nabla \cdot \left( \mu \left[(\nabla W * \mu) + \nabla G + \sum_{j=1}^m u_j \nabla \alpha_j \right] \right) + \sigma \Delta \mu.
-\end{equation}
-This formulation is similar to~\cite{Breiten2018}, in which they consider the Fokker-Planck equation as the state dynamics.
-\LM{The function $u$ needs to be chosen to guarantee that $\bar{\mu}$ still is the unique equilibrium of the system}.
-
-\LM{XXX: discuss the well-posedness of the equation, (I) existence and uniqueness of well-behaved solutions; (II) properties that $\mu$ is a PDF}.
-\LM{What guarantees that for any $u$, there will be only one equilibrium? Is it enough to have $u \to 0$? In which sense?}
-
-The abstract formulation of equation~\eqref{eq:controlled_mckean_vlasov} using operators is
-\[
-\dot{\mu} = \mathcal{A} \mu + \sum_{j=1}^m u_j(t) \mathcal{N}_j \mu +  \mathcal{W}(\mu),
-\]
-where $\mathcal{A} \mu = \nabla \cdot (\mu \nabla G + \sigma \nabla \mu)$, $\mathcal{N}_j \mu = \nabla \cdot (\mu \nabla \alpha_j)$, and $\mathcal{W}(\mu) = \nabla \cdot \left( \mu \left( \nabla W * \mu \right) \right)$ captures the nonlinear and non-local interaction term involving the convolution \(\nabla W * \mu\).
-
-Define $y = \mu - \bar\mu$ so that we have
-\begin{equation}
-    \label{eq:abstract_formulation_mckean_vlasov}
-    \dot{y} = \mathcal{A} y + \mathcal{W}(y+\bar{\mu}) - \mathcal{W}(\bar{\mu}) + \sum_{j=1}^m u_j(t) \mathcal{N}_j y + \mathcal{B}_j u_j(t),
-\end{equation}
-where $\mathcal{B}_j = \mathcal{N}_j \bar\mu$.
-
-To compute the linearised version of equation~\eqref{eq:abstract_formulation_mckean_vlasov}, the first step is to linearized $\mathcal{W}$ around $\bar{\mu}$ through its Fréchet derivative. 
-Notice that 
-\[
-\begin{split}
-    \mathcal{W}(y+\bar{\mu}) - \mathcal{W}(\bar{\mu}) &= \nabla \cdot \left[(y+\bar\mu)(\nabla W * y + \nabla W * \bar\mu) - \bar\mu (\nabla W * \bar{\mu})\right] \\
-    &= \nabla \cdot [(y+\bar\mu)(\nabla W * y) + y(\nabla W * \bar{\mu})] \\
-    &= \nabla \cdot [\bar\mu(\nabla W * y) +  y(\nabla W * \bar{\mu})] + \nabla \cdot [y(\nabla W * y)] \\
-    &\approx \nabla \cdot [\bar\mu(\nabla W * y) +  y(\nabla W * \bar{\mu})] \\ 
-    &=: \mathcal{D}_W y,
-\end{split}
-\]
-where $\mathcal{D}_W y$ is the functional derivative of $\mathcal{W}$.
-The linearized system is then
-\begin{equation}
-    \label{eq:linearized_abstract_mckean_vlasov}
-    \dot{y} = (\mathcal{A} + \mathcal{D}_W + \delta I)y + \sum_{j=1}^m \mathcal{B}_j u_j(t),
-\end{equation}
-where we include a parameter $\delta > 0$ to guarantee that all eigenvalues are negative, and $\mathcal{B} = (\mathcal{B}_1, \dots, \mathcal{B}_m)$ and $u(t) = (u_1(t), \dots, u_m(t))$. 
-We formulate this as an optimization problem where the objective is to minimize the integral of the squared \(L^2\) norm of \(y\) over time, together with the squared magnitude of the control function \(u(t)\), explicitly stated as
-\begin{equation}
-    \label{eq:quadratic_cost_functional}
-    \min_u \frac{1}{2}\int_0^{\infty} \left( \langle y(t), \mathcal{M} y(t) \rangle_{L^2(\Omega)} + \|u(t)\|_{2}^2\right) dt,
-\end{equation}
-where $\mathcal{M}$ is a self-adjoint nonnegative operator.
-
-The cost functional written in equation~\eqref{eq:quadratic_cost_functional} is associated to the {\em Ricatti equation} in the weak sense
-\[
-\langle (\mathcal{A} + \mathcal{D}_W + \delta I)^* \Pi y_1, y_2 \rangle_{L^2(\Omega)} + \langle \Pi (\mathcal{A} + \mathcal{D}_W + \delta I)y_1, y_2 \rangle_{L^2(\Omega)} - \langle \mathcal{B}^* \Pi y_1, \mathcal{B}^* \Pi y_2 \rangle_{L^2(\Omega)} + \langle \mathcal{M} y_1, y_2 \rangle_{L^2(\Omega)}= 0,
-\]
-for all functions $y_1, y_2$ in the domain of $\mathcal{A}$.
-If $(\mathcal{A} + \mathcal{D}_W, \mathcal{B})$ is $\delta$-stabilizable (\LM{XXX: this means that there exists a linear feedback control such that the resulting system will have with eigenvalues with real parts being at most $-\delta$.}), there exists a unique self-adjoint $\Pi$ such that $\mathcal{A} + \mathcal{D}_W + \delta I - \mathcal{B} \mathcal{B}^* \Pi$ generates an exponentially stable semigroup.
-Additionally, it suggests that we need a particular choice of $\alpha$ so that the pair is $\delta$-stabilizable for $\delta \ge -\rho(\mathcal{A}^*)$.
-\LM{XXX: we need to find such a condition for our case, I think it will be less trivial}.
-We then apply to equation~\eqref{eq:abstract_formulation_mckean_vlasov} the feedback law $u = -\mathcal{B}^* \Pi y$. \LM{XXX: we should then study the local stability here.}
-
-\subsection{Numerical Approach: Spectral Method and Riccati equation}
-
-To numerically solve the controlled McKean–Vlasov equation~\eqref{eq:controlled_mckean_vlasov}, we employ a spectral method due to its accuracy and efficiency for periodic boundary conditions on the torus. 
-Given that the domain is periodic, Fourier series are a natural choice for the basis functions. 
-To obtain the control function, after discretizing the linearized system using the spectral method, we will have a finite-dimensional linear-quadratic control problem which will provide, through a Riccati equation, an optimal feedback control formula.
-We then will plug this control into the original non-linear equation and solve the system of ODEs, which will lead to the approximated controlled McKean–Vlasov equation. 
-\LM{We should obtain some approximation results such as in \url{https://core.ac.uk/download/pdf/82197863.pdf}. 
-For instance, they demonstrated that the approximated feedback control matrix converges to the abstract operator.}
-
-We approximate \( y(x,t) \) and \( \bar{\mu}(x) \) using truncated Fourier series expansions:
-\[
-y(x,t) \approx \hat{y}_L(x,t) := \sum_{k=-L}^{L} a_k(t) \phi_k(x), \quad \bar{\mu}(x) \approx \hat{\mu}_L(x) := \sum_{k=-L}^{L} \bar{\mu}_k \phi_k(x),
-\]
-where \(\phi_k(x)\) are the Fourier modes, \( k \in \mathbb{Z} \), and \( L \) is a truncation parameter that determines the number of modes used in the approximation.
-For instance, in one dimension, when the torus is $[0,2\pi)$, we can consider the functions $\phi_k(x) = e^{ikx}$ with $a_{-k} = \overline{a_k}$, or purely sines and cosines.
-Our goal is to project the controlled McKean–Vlasov equation~\eqref{eq:controlled_mckean_vlasov} onto the finite-dimensional subspace spanned by the chosen Fourier modes, resulting in a system of $2L+1$ ordinary differential equations (ODEs) for the coefficients \( a_k(t) \).
-
-First, we compute $\hat\mu_L$ and project the initial condition on the Fourier basis.
-We approximate the equation that $\bar\mu$ satisfies, leading to
-\[
-\sum_{k=-L}^{L} \bar\mu_k \phi_k(x) = \frac{1}{\hat{Z}} e^{-\sigma^{-1}G(x) - \sigma^{-1}\sum_k \bar\mu_k W * \phi_k(x)},
-\]
-for some constant $\hat{Z}$ that normalizes $\bar\mu$ to a probability density.
-Integrating against $\phi_i^*$ we obtain,
-\[
-\bar\mu_i = \frac{1}{\hat{Z}\| \phi_i \|^2} \int_{\Omega} e^{-\sigma^{-1}G(x) - \sigma^{-1}\sum_{k=-L}^L \bar\mu_k W * \phi_k(x)} \phi_i^*(x) \, dx,
-\]
-which results in a set of $2L+1$ non-linear equations.
-For the initial condition, set
-\[
-\mu_0(x) \approx \hat\mu_0(x) := \sum_{k=-L}^L \bar \mu_{k,0} \phi_k(x) \implies \bar\mu_{i,0} = \frac{1}{\|\phi_i\|^2}\int_{\Omega} \mu_0(x) \phi_i^*(x) \, dx. 
-\]
-
-Starting with the discretisation of the linearized McKean–Vlasov equation as outlined in equation~\eqref{eq:linearized_abstract_mckean_vlasov}, we utilize the Fourier basis functions as test functions. 
-This yields, for each $-L \le i \le L$, the discretized version of the linearized equation:
-\[
-\begin{split}
-    \sum_{k=-L}^{L} \dot{a}_k(t) \int_{\Omega} \phi_k(x) \phi_i^*(x) \, dx &= -\sum_{k=-L}^{L} a_k(t) \left( \int_{\Omega} \phi_k(x) \nabla G(x) \cdot \nabla \phi_i^*(x)  + \sigma \nabla \phi_k(x) \cdot \nabla \phi_i^*(x) \, dx \right) \\
-    - \sum_{k=-L}^{L} &a_k(t) \left( \int_{\Omega} \hat\mu_L(x)( \nabla W * \phi_k(x) ) \cdot \nabla \phi_i^*(x) + \phi_k(x) (\nabla W * \hat\mu_L(x)) \cdot \nabla \phi_i^*(x) \, dx \right) \\ 
-    +\delta \sum_{k=-L}^{L} &a_k(t) \int_{\Omega} \phi_k(x) \phi_i^*(x) \, dx - \sum_{j=1}^m u_j(t) \int_{\Omega} \hat\mu_L(x) \nabla \alpha_j(x) \cdot \nabla \phi_i^*(x) \, dx. 
-\end{split}
-\]
-
-The above system can be written in matrix form as 
-\[
-\dot{a}(t) = -\Phi^{-1}(L_G + \sigma D + K - \delta \Phi) a(t) + \Phi^{-1}B u(t), 
-\]
-with $\Phi_{ik} = \langle \phi_k, \phi_i \rangle$, $[L_G]_{ik} = \langle \phi_k \nabla G, \nabla \phi_i \rangle$, $D_{ik} = \langle \nabla \phi_k, \nabla \phi_i \rangle$, $K_{ik} = \langle \hat\mu_L(\nabla W * \phi_k) + \phi_k(\nabla W * \hat\mu_L), \nabla \phi_i \rangle$, and $B_{ij} = -\langle \hat\mu_L\nabla \alpha_j, \nabla \phi_i \rangle$.
-By choosing an orthonormal basis, we can set $\Phi = I$ and $A = -(L_G + \sigma D + K - \delta \Phi)$.
-Moreover, the cost functional reads as 
-\[
-\frac{1}{2} \int_0^{\infty} a(t)^T M a(t) + \|u(t)\|_2^2 \, dt,
-\]
-where $M_{ij} = \langle \phi_i, \mathcal{M} \phi_j \rangle$.
-The associated Riccati equation is, then, 
-\[
-A^* \hat\Pi + \hat\Pi A - \hat\Pi B B^* \hat\Pi + M = 0,
-\]
-which can be solved numerically, leading to the feedback control $u(t) = -B^* \Pi a(t)$.
-
-We also perform the same operation for the non-linear equation~\eqref{eq:abstract_formulation_mckean_vlasov} with $u(t)$ in the feedback form.
-This leads to 
-\[
-\begin{split}
-    \sum_{k=-L}^{L} \dot{a}_k(t) \int_{\Omega} \phi_k(x) \phi_i^*(x) \, dx &= -\sum_{k=-L}^{L} a_k(t) \left( \int_{\Omega} \phi_k(x) \nabla G(x) \cdot \nabla \phi_i^*(x)  + \sigma \nabla \phi_k(x) \cdot \nabla \phi_i^*(x) \, dx \right) \\
-    - \sum_{k=-L}^{L} &a_k(t) \left( \int_{\Omega} \hat\mu_L(x)( \nabla W * \phi_k(x) ) \cdot \nabla \phi_i^*(x) + \phi_k(x) (\nabla W * \hat\mu_L(x)) \cdot \nabla \phi_i^*(x) \, dx \right) \\
-    - \sum_{k=-L}^{L} &\sum_{l=-L}^{L} a_k(t) a_l(t) \int_{\Omega} \phi_k(x)( \nabla W * \phi_l(x)) \cdot \nabla \phi_i^*(x) \, dx \\
-    + \sum_{j=1}^m (B^* \Pi &a(t))_j \sum_{k=-L}^{L} a_k(t) \int_{\Omega} \phi_k(x) \nabla \alpha_j(x) \cdot \nabla \phi_i^*(x) \, dx \\
-    + (B^* \Pi &a(t))_j \int_{\Omega} \hat\mu_L(x) \nabla \alpha_j(x) \cdot \nabla \phi_i^*(x) \, dx. 
-\end{split}
-\]
-The above system can be rewritten as 
-\[
-\dot{a}(t) = -(L_G + \sigma D + K) a(t) - T : (a(t) \otimes a(t)) + \sum_{j=1}^m (B_j^* \Pi a(t)) \Psi^{(j)} a(t)  -  B B^* \Pi a(t),
-\]
-where $T_{ikl} = \langle \phi_k \nabla W * \phi_l, \nabla \phi_i \rangle$, $\Psi_{ik}^{(j)} = \langle \phi_k \nabla \alpha_j, \nabla \phi_i \rangle$, $B_j$ is the $j$-th column of $B$,  and $D:C$ is a double contraction between the tensors $D$ and $C$.
-By solving this system of ODEs with $a_k(0) = \bar\mu_{i,0}$, we obtain an approximation for the controlled McKean-Vlasov equation.
-
-\subsubsection{1-D case}
-
-In one dimension, over the interval $[0,d]$ with periodic boundary conditions, consider the orthonormal basis
-\[
-\phi_k(x) = \frac{1}{\sqrt{d}} e^{\frac{2\pi}{d}i k x}.
-\]
-
-An easy way to project a function on the Fourier basis uses the so-called Fast Fourier Transform.
-If over an interval $[0,d]$,
-\[
-g(x) = \sum_{k=-L}^L c_k \phi_k(x),
-\]
-then we know that
-\[
-c_k = \sqrt{\frac{1}{d}} \int_0^d f(x) e^{-\frac{2\pi}{d} k x i} \, dx \approx \frac{d}{N\sqrt{d}} \sum_{j=0}^{N-1} f(t_j) e^{-\frac{2\pi}{d} k t_j i}
-\]
-for points $0 \le t_0 < t_1 < \cdots < t_{N-1} \le d$. 
-We consider the mid interval points $t_j = (j+1/2) d/N$, so
-\[
-\begin{split}
-    c_k &\approx \frac{\sqrt{d}}{N} \sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} k (j+1/2) i} \\
-    &= \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i}\sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} j k i} \\
-    &=  \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i} FFT_k[(f_0, \dots, f_{N-1})],
-\end{split}
-\]
-where $f_j = f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)$, for $k \ge 0$.
-For $k < 0$, notice that $c_k = \overline{c_{-k}}$.
-
-Let us calculate $W * \phi_k$ for a periodic function $W$.
-Write 
-\[
-W(x) = \sum_{j=-\infty}^{\infty} w_j \phi_j (x).
-\]
-Then,
-\[
-W * \phi_k(x) = \sum_{j=-\infty}^{\infty} w_j \int_{\Omega} \phi_j(x-y) \phi_k(y) \, dy = \sum_{j=-\infty}^{\infty} w_j  \phi_j * \phi_k(x) = \sqrt{d} w_k \phi_k(x)
-\]
-where $w_k$ can be computed similarly using the FFT, as for $\mu_0$.
-
-Using this fact to calculate $\bar\mu_i$,
-\[
-\bar\mu_i = \frac{1}{\hat{Z}} \int_{\Omega} \exp\left\{-\frac{G(x)}{\sigma} - \frac{\sqrt{d}}{\sigma}\sum_{k=-L}^L \bar\mu_k w_k \phi_k(x)\right\} \phi_i^*(x) \, dx.
-\]
-
-Let us find a better way to compute $L_G$.
-Notice that \( \phi_k'(x) = \frac{2\pi}{d} ik \phi_k(x) \).
-By definition,
-\[
-[L_G]_{kl} = \int_{\Omega} \phi_l(x) G'(x) \overline{\phi_k'(x)} \,dx = -\frac{2\pi}{d} i k \int_{\Omega} \phi_l(x) G'(x) \phi_{-k}(x) \,dx.
-\]
-Write 
-\[
-G(x) = \sum_{j=-\infty}^{\infty} g_j \phi_j(x) \implies G'(x) = \sum_{j=-\infty}^{\infty} g_j \phi_j'(x) = \sum_{j=-\infty}^{\infty} \frac{2\pi}{d} ij g_j \phi_j(x).
-\]
-Then, we get that 
-\[
-\begin{split}
-    [L_G]_{kl} &= \frac{4\pi^2}{d^2} k \sum_{j=-\infty}^{\infty} j g_j \int_{\Omega} \phi_l(x) \phi_j(x) \phi_{-k}(x) \, dx \\
-    &= \frac{4\pi^2}{d^2\sqrt{d}} k  \sum_{j=-\infty}^{\infty} j g_j \int_{\Omega} \frac{1}{\sqrt{d}} e^{\frac{2\pi}{d} i (l+j-k)x} \, dx \\
-    &= \frac{4\pi^2}{d^2\sqrt{d}} k (k-l) g_{k-l}.
-\end{split}
-\]
-
-We move to compute matrix $D$, which is given by
-\[
-D_{kl} = \int_{\Omega} \phi_l'(x) \overline{\phi_k'(x)} \, dx = \frac{4 \pi^2}{d^2} kl \int_{\Omega} \phi_{l}(x) \phi_{-k}(x) \, dx = \frac{4 \pi^2}{d^2} kl \mathbbm{1}_{k=l}.
-\]
-
-Let us do this for matrix $K$.
-By definition, 
-\[
-\begin{split}
-    K_{kl} &= \int_{\Omega} [\bar{\mu}_L(x) (W' * \phi_l(x)) + \phi_l(x) (W'*\bar\mu_L(x))] \overline{\phi_k'(x)} \, dx \\
-    &= \sum_{j=-L}^{L} \bar\mu_j \int_{\Omega} [\phi_j(x) (W' * \phi_l(x)) + \phi_l(x) (W'* \phi_j(x))] \overline{\phi_k'(x)} \, dx \\
-    &= \sum_{j=-L}^{L} \bar\mu_j \int_{\Omega} [\phi_j(x) \sqrt{d} w_l' \phi_l(x) + \phi_l(x) \sqrt{d} w_j' \phi_j(x) ] \overline{\phi_k'(x)} \, dx \\
-    &= \frac{4\pi^2}{d\sqrt{d}} k \sum_{j=-L}^{L} \bar\mu_j ( l w_l + j w_j) \int_{\Omega} \phi_j(x) \phi_l(x) \phi_{-k}(x) \, dx \\
-    &= \frac{4\pi^2}{d^2} k \sum_{j=-L}^{L} \bar\mu_j ( l w_l + j w_j) \int_{\Omega} \frac{1}{\sqrt{d}}e^{\frac{2\pi}{d}i(j+l-k)x} \, dx \\
-    &= \frac{4\pi^2}{d^2} k \bar\mu_{k-l}(l w_l + (k-l)w_{k-l})\mathbbm{1}_{|k-l|\le L} ,
-\end{split}
-\]
-where we used that
-\[
-W'(x) = \sum_{j=-\infty}^{\infty} w_j \phi_j'(x) = \sum_{j=-\infty}^{\infty} \frac{2\pi}{d} ij w_j \phi_j(x). 
-\]
-
-The next step is to calculate the matrix $T$.
-We have
-\[
-\begin{split}
-    T_{klm} &= \langle \phi_l W' * \phi_m, \phi_k' \rangle \\
-    &= \frac{2\pi}{\sqrt{d}} im w_m \langle \phi_l \phi_m, \phi_k' \rangle \\
-    &= \frac{4\pi^2}{d\sqrt{d}} k m w_m \int_{\Omega} \phi_l(x) \phi_m(x) \phi_{-k}(x) \, dx \\
-    &= \frac{4\pi^2}{d^2} k m w_m \mathbbm{1}_{m=k-l} \mathbbm{1}_{|k-l| \le L}.     
-\end{split}
-\]
-Given the sparsity of matrix $T$, we can compute $T : (a \otimes a)$ without storing $T$.
-
-Notice that, for each $k$, 
-\[
-\sum_{l=-L}^{L} \sum_{m=-L}^{L} a_l(t) a_m(t) T_{klm} =  \frac{4\pi^2}{d^2} k \sum_{l=\max(k-L, -L)}^{\min(k+L, L)} a_l(t) a_{k-l}(t) (k-l) w_{k-l} =: T_k(a,a).
-\]  
-
-Then, we want to solve, for each $i$, and using the properties we discussed about this basis of functions,
-\[
-\begin{split}
-    \dot{a}_i(t)  &= -\sum_{k=-L}^{L} a_k(t) (L_{ik} + \sigma D_{ik} + K_{ik}) - T_i(a,a).
-\end{split}
-\]
-
-When including the control, notice that tensor $\Psi^{(j)}$ is similar to $L_G$ by replacing $G$ per $\alpha_j$ for each $j=1, \dots, m$. 
-All the calculations remain the same.
-For the operator $\mathcal{B}$, we need to apply $\mathcal{N}$ to $\bar\mu$.
-When discretizing, we get 
-\[
-B_{kj} = -\int_{\Omega} \hat\mu_L(x) \alpha_j'(x) \overline{\phi_k'(x)} \, dx = -\sum_{l=-L}^L \bar\mu_l \int_{\Omega} \phi_l(x) \alpha_j'(x) \overline{\phi_k'(x)} \, dx \implies B_j = -\Psi^{(j)} \bar\mu.
-\]
-
-Another possibility is that $\alpha_j$ is not a periodic function, but $\nabla \alpha$ is a constant function.
-In this case,
-\[
-\Psi_{kl}^{(j)} = \langle \phi_l, \phi_k' \rangle = \frac{2\pi}{d} ik\langle \phi_l, \phi_k \rangle = \frac{2\pi}{d} ik \mathbbm{1}_{k=l}.
-\]
-
-
-\subsubsection{2-D case}
-
-In two dimensions, over the rectangle $[0,d_1] \times [0,d_2]$ with periodic boundary conditions, consider the orthonormal basis
-\[
-\phi_{k,l}(x,y) = \frac{1}{\sqrt{d_1 d_2}} e^{\frac{2\pi}{d_1}i k x} e^{\frac{2\pi}{d_2}i ly}.
-\]
-
-Consider a function $g$ written in this basis. 
-So 
-\[
-g(x,y) = \sum_{k=-L}^L \sum_{l=-L}^L c_{k,l} \phi_{k,l}(x,y)
-\]
-over $[0,d_1] \times [0,d_2]$.
-We know that
-\[
-c_{k,l} = \sqrt{\frac{1}{d_1 d_2}} \int_0^d f(x) e^{-\frac{2\pi}{d} k x i} \, dx \approx \frac{d}{N\sqrt{d}} \sum_{j=0}^{N-1} f(t_j) e^{-\frac{2\pi}{d} k t_j i}
-\]
-for points $0 \le t_0 < t_1 < \cdots < t_{N-1} \le d$. 
-We consider the mid interval points $t_j = (j+1/2) d/N$, so
-\[
-\begin{split}
-    c_k &\approx \frac{\sqrt{d}}{N} \sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} k (j+1/2) i} \\
-    &= \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i}\sum_{j=0}^{N-1} f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)e^{-\frac{2\pi}{N} j k i} \\
-    &=  \frac{\sqrt{d}}{N} e^{-\frac{\pi}{N} k i} FFT_k[(f_0, \dots, f_{N-1})],
-\end{split}
-\]
-where $f_j = f\left(\left(j+\frac{1}{2}\right)\frac{d}{N}\right)$, for $k \ge 0$.
-For $k < 0$, notice that $c_k = \overline{c_{-k}}$.
-
-Let us calculate $W * \phi_k$ for a periodic function $W$.
-Write 
-\[
-W(x) = \sum_{j=-\infty}^{\infty} w_j \phi_j (x).
-\]
-Then,
-\[
-W * \phi_k(x) = \sum_{j=-\infty}^{\infty} w_j \int_{\Omega} \phi_j(x-y) \phi_k(y) \, dy = \sum_{j=-\infty}^{\infty} w_j  \phi_j * \phi_k(x) = \sqrt{d} w_k \phi_k(x)
-\]
-where $w_k$ can be computed similarly using the FFT, as for $\mu_0$.
-
-Using this fact to calculate $\bar\mu_i$,
-\[
-\bar\mu_i = \frac{1}{\hat{Z}} \int_{\Omega} \exp\left\{-\frac{G(x)}{\sigma} - \frac{\sqrt{d}}{\sigma}\sum_{k=-L}^L \bar\mu_k w_k \phi_k(x)\right\} \phi_i^*(x) \, dx.
-\]
-
-Let us find a better way to compute $L_G$.
-Notice that \( \phi_k'(x) = \frac{2\pi}{d} ik \phi_k(x) \).
-By definition,
-\[
-[L_G]_{kl} = \int_{\Omega} \phi_l(x) G'(x) \overline{\phi_k'(x)} \,dx = -\frac{2\pi}{d} i k \int_{\Omega} \phi_l(x) G'(x) \phi_{-k}(x) \,dx.
-\]
-Write 
-\[
-G(x) = \sum_{j=-\infty}^{\infty} g_j \phi_j(x) \implies G'(x) = \sum_{j=-\infty}^{\infty} g_j \phi_j'(x) = \sum_{j=-\infty}^{\infty} \frac{2\pi}{d} ij g_j \phi_j(x).
-\]
-Then, we get that 
-\[
-\begin{split}
-    [L_G]_{kl} &= \frac{4\pi^2}{d^2} k \sum_{j=-\infty}^{\infty} j g_j \int_{\Omega} \phi_l(x) \phi_j(x) \phi_{-k}(x) \, dx \\
-    &= \frac{4\pi^2}{d^2\sqrt{d}} k  \sum_{j=-\infty}^{\infty} j g_j \int_{\Omega} \frac{1}{\sqrt{d}} e^{\frac{2\pi}{d} i (l+j-k)x} \, dx \\
-    &= \frac{4\pi^2}{d^2\sqrt{d}} k (k-l) g_{k-l}.
-\end{split}
-\]
-
-We move to compute matrix $D$, which is given by
-\[
-D_{kl} = \int_{\Omega} \phi_l'(x) \overline{\phi_k'(x)} \, dx = \frac{4 \pi^2}{d^2} kl \int_{\Omega} \phi_{l}(x) \phi_{-k}(x) \, dx = \frac{4 \pi^2}{d^2} kl \mathbbm{1}_{k=l}.
-\]
-
-Let us do this for matrix $K$.
-By definition, 
-\[
-\begin{split}
-    K_{kl} &= \int_{\Omega} [\bar{\mu}_L(x) (W' * \phi_l(x)) + \phi_l(x) (W'*\bar\mu_L(x))] \overline{\phi_k'(x)} \, dx \\
-    &= \sum_{j=-L}^{L} \bar\mu_j \int_{\Omega} [\phi_j(x) (W' * \phi_l(x)) + \phi_l(x) (W'* \phi_j(x))] \overline{\phi_k'(x)} \, dx \\
-    &= \sum_{j=-L}^{L} \bar\mu_j \int_{\Omega} [\phi_j(x) \sqrt{d} w_l' \phi_l(x) + \phi_l(x) \sqrt{d} w_j' \phi_j(x) ] \overline{\phi_k'(x)} \, dx \\
-    &= \frac{4\pi^2}{d\sqrt{d}} k \sum_{j=-L}^{L} \bar\mu_j ( l w_l + j w_j) \int_{\Omega} \phi_j(x) \phi_l(x) \phi_{-k}(x) \, dx \\
-    &= \frac{4\pi^2}{d^2} k \sum_{j=-L}^{L} \bar\mu_j ( l w_l + j w_j) \int_{\Omega} \frac{1}{\sqrt{d}}e^{\frac{2\pi}{d}i(j+l-k)x} \, dx \\
-    &= \frac{4\pi^2}{d^2} k \bar\mu_{k-l}(l w_l + (k-l)w_{k-l})\mathbbm{1}_{|k-l|\le L} ,
-\end{split}
-\]
-where we used that
-\[
-W'(x) = \sum_{j=-\infty}^{\infty} w_j \phi_j'(x) = \sum_{j=-\infty}^{\infty} \frac{2\pi}{d} ij w_j \phi_j(x). 
-\]
-
-The next step is to calculate the matrix $T$.
-We have
-\[
-\begin{split}
-    T_{klm} &= \langle \phi_l W' * \phi_m, \phi_k' \rangle \\
-    &= \frac{2\pi}{\sqrt{d}} im w_m \langle \phi_l \phi_m, \phi_k' \rangle \\
-    &= \frac{4\pi^2}{d\sqrt{d}} k m w_m \int_{\Omega} \phi_l(x) \phi_m(x) \phi_{-k}(x) \, dx \\
-    &= \frac{4\pi^2}{d^2} k m w_m \mathbbm{1}_{m=k-l} \mathbbm{1}_{|k-l| \le L}.     
-\end{split}
-\]
-Given the sparsity of matrix $T$, we can compute $T : (a \otimes a)$ without storing $T$.
-
-Notice that, for each $k$, 
-\[
-\sum_{l=-L}^{L} \sum_{m=-L}^{L} a_l(t) a_m(t) T_{klm} =  \frac{4\pi^2}{d^2} k \sum_{l=\max(k-L, -L)}^{\min(k+L, L)} a_l(t) a_{k-l}(t) (k-l) w_{k-l} =: T_k(a,a).
-\]  
-
-Then, we want to solve, for each $i$, and using the properties we discussed about this basis of functions,
-\[
-\begin{split}
-    \dot{a}_i(t)  &= -\sum_{k=-L}^{L} a_k(t) (L_{ik} + \sigma D_{ik} + K_{ik}) - T_i(a,a).
-\end{split}
-\]
-
-When including the control, notice that tensor $\Psi^{(j)}$ is similar to $L_G$ by replacing $G$ per $\alpha_j$ for each $j=1, \dots, m$. 
-All the calculations remain the same.
-For the operator $\mathcal{B}$, we need to apply $\mathcal{N}$ to $\bar\mu$.
-When discretizing, we get 
-\[
-B_{kj} = -\int_{\Omega} \hat\mu_L(x) \alpha_j'(x) \overline{\phi_k'(x)} \, dx = -\sum_{l=-L}^L \bar\mu_l \int_{\Omega} \phi_l(x) \alpha_j'(x) \overline{\phi_k'(x)} \, dx \implies B_j = -\Psi^{(j)} \bar\mu.
-\]
-
-Another possibility is that $\alpha_j$ is not a periodic function, but $\nabla \alpha$ is a constant function.
-In this case,
-\[
-\Psi_{kl}^{(j)} = \langle \phi_l, \phi_k' \rangle = \frac{2\pi}{d} ik\langle \phi_l, \phi_k \rangle = \frac{2\pi}{d} ik \mathbbm{1}_{k=l}.
-\]
-
-\subsubsection{Ideas to implement}
-
-\begin{enumerate}
-    \item I can reduce the system size by using symmetry in the complex numbers, such as, \(a_{-k} = \overline{a_k}\). 
-    For this to work, I must redo all matrices considering the system reduction: 
-    For the linear case, it is not hard. 
-    Suppose $x = (x^{0}, x^{1}, x^{2})$ and $x' = Ax$ for a matrix $A$. 
-    Consider that $A$ can be divided in six parts and $x^{2} = \overline{x^{1}}$. 
-    We suppose that $x_0$ is real.
-    Then,
-    \begin{align*}
-        \dot{\Re(x^{1})} &= \Re(A_0) x_0 + \Re(A_1) \Re(x^1) - \Im(A_1) \Im(x^1) + \Re(A_2) \Re(x^1) + \Im(A_2) \Im(x^1) \\
-        \dot{\Im(x^{1})}&= \Im(A_0) x_0 + \Re(A_1) \Im(x^1) + \Im(A_1) \Re(x^1) - \Re(A_2) \Im(x^1) - \Im(A_2) \Re(x^1),
-    \end{align*}
-    which is an affine system if we suppose that $x_0$ is known.
-    For the quadratic transformation $T_k$, we need more work because 
+\section{Linear Operators}
+
+\begin{theorem}[Theorem 6.29 (Chapter III) of~\cite{kato2013perturbation}]
+    If $T$ is closed in $\Space$ such that for some $\zeta$, $R(\zeta, T)$ exists and is compact, then the spectrum of $T$ consists of isolated eigenvalues (discrete spectrum) with finite multiplicities, and $R(\zeta)$ is compact for every $\zeta \in P(T)$.
+    Here $P(T)$ indicates the resolvent set, where the resolvent operator is well-defined and bounded.  
+\end{theorem}
+
+\begin{theorem}[Theorem 1.16 (Chapter IV) of~\cite{kato2013perturbation}]
+    Let $T \colon \D(T)\subset X \longrightarrow X$ be a closed linear operator whose inverse \(T^{-1}\in\B(X)\) is bounded on all of \(X\).
+    Let $A \colon \D(A)\longrightarrow X$ be another linear operator with \(\D(A) \supset \D(T)\), and suppose there exist nonnegative constants \(a,b\) such that
     \[
-    \begin{split}
-        T_k(a,a) &= -\sum_{s=1}^{L-k} (\Re(a_{k+s}) + i \Im(a_{k+s}))(\Re(a_{s}) - i \Im(a_{s}))s(\Re(w_{s}) - i \Im(w_{s})) \\ &+ \sum_{s=1}^{k-1} (\Re(a_{k-s}) + i \Im(a_{k-s}))(\Re(a_{s}) + i \Im(a_{s}))s(\Re(w_{s}) + i \Im(w_{s})) \\ &+ \sum_{s=k}^{L} (\Re(a_{s-k}) - i \Im(a_{s-k}))(\Re(a_{s}) + i \Im(a_{s}))s(\Re(w_{s}) + i \Im(w_{s})).
-    \end{split}
+    \|A\,x\| \le a\,\|x\| + b\,\|T\,x\|, \qquad \forall\,x\in\D(T),
     \]
-
-
-    \item matrix $L_G$, $D$ and $K$ have special structures.
-    In particular, $L_G a$ can be viewed as a convolution of $a$ instead of a matrix product. 
-    Therefore, we can apply the Fast Fourier Transform and reduce the cost from $O(L^2)$ to $O(L \log L)$.
-\end{enumerate}
-
-\section{Theoretical Aspects}
-
-In this work we consider the McKean-Vlasov equation with periodic boundary conditions:
-\begin{equation}
-    \begin{aligned}
-        \frac{\partial \rho}{\partial t}(t,x) &= \sigma \,\Delta_x \,\rho(t,x) + \nabla_x \cdot \Bigl[\rho(t,x)\,\Bigl(\nabla V(x) + \int_{\mathbb{R}^d} \nabla W(x-y)\,\rho(t,y)\,\mathrm{d}y\Bigr)\Bigr] \text{ in } \mathbb{T} \times (0, \infty) \\
-        \rho(x,0) &= \rho_0(x) \text{ in } \mathbb{T},
-    \end{aligned}
-    \label{eq:mckean_vlasov}
-\end{equation}
-where $\mathbb{T} = \mathbb{R}^d/(2\pi\mathbb{Z})^d$ is the torus, $\sigma > 0$ is the diffusion coefficient, $V$ is the potential, and $W$ is the interaction potential.
-In the control scenario, we set $V(x,t) = G(x) + \boldsymbol{\alpha}(x) \cdot \boldsymbol{u}(t)$, where $G$ is the confining potential, $\boldsymbol{\alpha}$ is the control function, and $\boldsymbol{u}$ is the control input.
-All functions should be periodic in the spatial variable.
-
-\subsection{Well-posedness}
-
-For arbitrary $T > 0$, we refer to $\rho$ as a (variational) solution of \eqref{eq:mckean_vlasov} on $(0,T)$ if
-\[
-\rho \in W(0,T) = L^2(0, T; H^1(\mathbb{T})) \cap H^1(0, T; (H^1(\mathbb{T}))^*)
-\]
-and for a.e. $t \in (0, T)$,
-\begin{equation}
-    \label{eq:weak_formulation}
-    \langle \rho_t(t), v \rangle + \langle \sigma \nabla \rho(t) + \rho(t) (\nabla G + \nabla W * \rho(t)), \nabla v \rangle + \sum_{i=1}^{m} u_i(t) \langle \rho(t) \nabla \alpha_i(x), \nabla v \rangle = 0 \quad \text{for all } v \in H^1(\mathbb{T}),
-\end{equation}
-
-By XXX, $W(0,T) \subset C([0,T], L^2(\mathbb{T}))$. 
-The functions $G$ and $\alpha$ should belong to $W^{1,\infty}(\mathbb{T}) \cap W^{2, max(2,n)}(\mathbb{T})$ (\LM{I don't think that this is necessary here}) and $W \in W^{1,\infty}(\mathbb{T}) \cap W^{2, \max(2,n)}(\mathbb{T})$.
-
-\begin{proposition}
-    For every $u \in L^2(0,T)$ and $\rho_0 \in L^2(\mathbb{T})$, there exists a unique solution. 
-    If moreover $\rho_0 \in H^1(\mathbb{T})$ and $\Delta \alpha_i \in L^\infty(\mathbb{T})$ for each $i=1,\dots,m$, then $\rho_t \in L^2(0,T; L^2(\mathbb{T}))$ and $\rho \in C([0,T]; H^1(\mathbb{T}))$.
-\end{proposition}
-
-\begin{proof}
-    \LM{The claim can be verified by a standard Galerkin approximation technique, and we therefore only give the necessary a-priori estimates.} 
-    Taking the inner products with $\rho(t)$ in \eqref{eq:weak_formulation} we get
+    and moreover
     \[
-    \frac{1}{2}\frac{d}{dt} \|\rho(t)\|^2 + \sigma \|\nabla \rho(t)\|^2 \le \left(\|\nabla G\|_\infty + \sum_{i=1}^{m} |u_i(t)| \|\nabla \alpha_i\|_\infty + \|\nabla W\|_1 \|\rho(t)\| \right) \|\rho(t)\| \|\nabla \rho(t)\|,
+    a\,\|T^{-1}\| + b <1.
     \]
-    which implies 
+    Define the perturbed operator $S := T + A$. 
+    Then \(S\) is closed and bijective \(\D(S)\to X\), its inverse satisfies the norm-estimate
     \[
-    \frac{d}{dt} \|\rho(t)\|^2 + \sigma \|\nabla \rho(t)\|^2 \le \frac{1}{\sigma}\left(\|\nabla G\|_\infty + \sum_{i=1}^{m} |u_i(t)| \|\nabla \alpha_i\|_\infty + \|\nabla W\|_1 \|\rho(t)\| \right)^2 \|\rho(t)\|^2
+        \|S^{-1}\| \le \frac{\|T^{-1}\|}{1 - \bigl(a\,\|T^{-1}\|+b\bigr)}.
     \]
-\end{proof}
+   If, in addition, \(T^{-1}\) is compact on \(X\), then so is \(S^{-1}\).
+\end{theorem}
 
 
+\begin{theorem}[Theorem 3.17 (Chapter IV) of~\cite{kato2013perturbation}]
+    Let $T \colon \D(T)\subset X \longrightarrow X$ be a closed linear operator.
+    Let $A \colon \D(A)\longrightarrow X$ be a $T$-bounded linear operator with \(\D(A) \supset \D(T)\).
+    Let
+    \[
+        P(T) = \bigl\{\zeta\in\C : T - \zeta I \hbox{ is bijective and }(T-\zeta I)^{-1}\in\B(X)\bigr\}
+    \]
+    be the resolvent set of \(T\), and for each \(\zeta\in P(T)\) write $R(\zeta,T) :=(T-\zeta I)^{-1}$.
+    Assume there exists some \(\zeta\in P(T)\) such that
+    \[
+        a\,\bigl\|R(\zeta,T)\bigr\| + b\,\bigl\|T\,R(\zeta,T)\bigr\| <1.
+    \]
+    Define the perturbed operator $S := T + A$. 
+    Then \(\zeta\in\rho(S)\), \(S\) is closed and \((S-\zeta I)^{-1}\) exists and is bounded.
+    The resolvent \(R(\zeta,S)=(S-\zeta I)^{-1}\) satisfies
+    \[
+        \bigl\|R(\zeta,S)\bigr\| \le \frac{\|R(\zeta,T)\|}{1 - \bigl(a\,\|R(\zeta,T)\| + b\,\|T\,R(\zeta,T)\|\bigr)}.
+    \]
+    If \(R(\zeta,T)\) is compact on \(X\), then so is \(R(\zeta,S)\). Hence \(S\) has compact resolvent.
+\end{theorem}
+
+\begin{theorem}[Theorem 6.16 (Chapter III) of~\cite{kato2013perturbation}]
+    Let $T$ be a closed invertible operator in $\Space$.
+    $\tilde{\Sigma}(T)$ and $\tilde{\Sigma}(T^{-1})$ are mapped onto each other by the mapping $\zeta \mapsto \zeta^{-1}$ of the extended complex plane. 
+    This is a special case of the spectral mapping theorem, that states that the spectrum of $\phi(T)$ is the image under $\phi$ of the spectrum of $T$.
+\end{theorem}
+
+\begin{theorem}[Theorem XIII.64 of~\cite{reed1972methodsIV}]
+    Let \( A \) be a self-adjoint operator that is bounded from below. Then the following are equivalent:
+    \begin{enumerate}
+        \item \( (A - \mu)^{-1} \) is compact for some \( \mu \in \rho(A) \).
+        \item \( (A - \mu)^{-1} \) is compact for all \( \mu \in \rho(A) \).
+        \item \( \{ \psi \in \mathcal{D}(A) : \|\psi\| \leq 1,\ \|A\psi\| \leq b \} \) is compact for all \( b \).
+        \item \( \{ \psi \in \mathcal{Q}(A) : \|\psi\| \leq 1,\ \langle \psi, A\psi \rangle \leq b \} \) is compact for all \( b \).
+        \item There exists a complete orthonormal basis \( \{ \varphi_n \}_{n=1}^\infty \subset \mathcal{D}(A) \) such that
+        \[
+        A \varphi_n = \mu_n \varphi_n,\quad \mu_1 \leq \mu_2 \leq \cdots,\quad \text{and } \mu_n \to \infty.
+        \]
+        \item $\mu_n(A) \to \infty$, where 
+        \[
+        \mu_n(A) \coloneqq \min_{S \subset D(A), |S|=n} \max_{0 \neq \psi \in S} \frac{\langle \psi, A\psi \rangle}{\|\psi\|^2}.
+        \]
+    \end{enumerate}
+\end{theorem}
 
 
+\section{Schrodinger Operator}
 
+\begin{theorem}[Theorem XIII.67 of~\cite{reed1972methodsIV}]
+    Let $V \in L_{\mathrm{loc}}^1$ be bounded from below and suppose that $V \to \infty$.
+    Then $H = -\Delta + V$ defined as a aum of quadratic forms is an operator with compact resolvent.
+    In particular, $H$ has a purely discrete spectrum and a complete set of eigenfunctions.
+\end{theorem}
 
-\newpage
 
 \bibliographystyle{plainnat}
 \bibliography{biblio}

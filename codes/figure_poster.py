@@ -2,8 +2,17 @@ import numpy as np
 from scipy.special import beta
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
+import matplotlib.font_manager as fm
+import scienceplots
 
 from main import McKeanVlasovSolver
+
+plt.style.use('science')
+
+#poster_font_path = "/Users/lmm122/Documents/codes/Fonts/ImperialSansText-Regular.ttf"
+#fm.fontManager.addfont(poster_font_path)
+#font_prop = fm.FontProperties(fname=poster_font_path)
+#plt.rcParams["font.family"] = font_prop.get_name()
 
 # Define the x-axis for the reconstruction (uniform in [0, 2pi])
 x = np.linspace(0, 2*np.pi, 500)
@@ -51,49 +60,49 @@ solution2_u = solver2.nonlinear_uncontrolled_solver_y(t_span=(0, t_max), t_eval=
 indices_u = np.linspace(0, len(solution2_u.t) - 1, num_snapshots, dtype=int)
 indices_c = np.linspace(0, len(solution2_c.t) - 1, num_snapshots, dtype=int)
 
-# Create a figure with two subplots side by side
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16/2, 9/2), dpi=300)
+# Custom colormaps
+cmap_uncontrolled = LinearSegmentedColormap.from_list("grey_red", ["grey", "red"])
+cmap_controlled   = LinearSegmentedColormap.from_list("grey_blue", ["grey", "blue"])
 
-# Plot for Uncontrolled Evolution
+# Plot parameters
+num_snapshots = len(solution2_u.t)
+lw_primary = 6   # for initial & final
+lw_secondary = 3 # for intermediates
+alpha_secondary = 0.7
+
+# Create figure with 3 panels
+fig, axes = plt.subplots(1, 3, figsize=(16, 3), constrained_layout=False)
+fig.subplots_adjust(left=0.01, right=0.99, top=0.95, bottom=0.05, wspace=0.6)
+
+# Panel 1: Initial Model
+axes[0].plot(x, solver2.reconstruction(solution2_u.y[:, 0] + solver2.bar_mu_k, x),
+             color='black', linewidth=lw_primary)
+axes[0].axis('off')
+
+# Panel 2: Natural Evolution
 for i in range(num_snapshots):
-    distribution = solver2.reconstruction(solution2_u.y[:, i]+solver2.bar_mu_k, x)
+    y = solver2.reconstruction(solution2_u.y[:, i] + solver2.bar_mu_k, x)
     if i == 0:
-        # Initial condition: black, full opacity
-        ax1.plot(x, distribution, color="black", alpha=1.0, linewidth=5, label="Initial Distribution")
+        axes[1].plot(x, y, color='black', linewidth=lw_primary, zorder=2, alpha=0.5)
     elif i == num_snapshots - 1:
-        # Final condition: red, full opacity
-        color = cmap_uncontrolled(1.0)
-        ax1.plot(x, distribution, color=color, alpha=1.0, linewidth=5, label="Final Distribution")
+        axes[1].plot(x, y, color='red', linewidth=lw_primary+2, zorder=2)
     else:
         frac = i / (num_snapshots - 1)
-        color = cmap_uncontrolled(frac)
-        ax1.plot(x, distribution, color=color, alpha=0.5, linewidth=5)
+        axes[1].plot(x, y, color=cmap_uncontrolled(frac),
+                     linewidth=lw_secondary, alpha=alpha_secondary, zorder=1)
+axes[1].axis('off')
 
-ax1.set_title('Uncontrolled Evolution', fontsize=18)
-ax1.set_xlabel('x', fontsize=15)
-ax1.grid(True, linestyle='--', linewidth=0.75, color='grey', alpha=0.7)
-ax1.legend(fontsize=14)
-
-# Plot for Controlled Evolution
+# Panel 3: Guided Evolution
 for i in range(num_snapshots):
-    distribution = solver2.reconstruction(solution2_c.y[:, i]+solver2.bar_mu_k, x)
+    y = solver2.reconstruction(solution2_c.y[:, i] + solver2.bar_mu_k, x)
     if i == 0:
-        # Initial condition: black, full opacity
-        ax2.plot(x, distribution, color="black", alpha=1.0, linewidth=5, label="Initial Distribution")
+        axes[2].plot(x, y, color='black', linewidth=lw_primary, zorder=2, alpha=0.5)
     elif i == num_snapshots - 1:
-        # Final condition: blue, full opacity
-        color = cmap_controlled(1.0)
-        ax2.plot(x, distribution, color=color, alpha=1.0, linewidth=5, label="Final Distribution")
+        axes[2].plot(x, y, color='blue', linewidth=lw_primary+2, zorder=2)
     else:
         frac = i / (num_snapshots - 1)
-        color = cmap_controlled(frac)
-        ax2.plot(x, distribution, color=color, alpha=0.5, linewidth=5)
+        axes[2].plot(x, y, color=cmap_controlled(frac),
+                     linewidth=lw_secondary, alpha=alpha_secondary, zorder=1)
+axes[2].axis('off')
 
-ax2.set_title('Controlled Evolution', fontsize=18)
-ax2.set_xlabel('x', fontsize=14)
-ax2.grid(True, linestyle='--', linewidth=0.75, color='grey', alpha=0.7)
-ax2.legend(fontsize=14)
-
-plt.tight_layout()
-plt.savefig("poster_plot_2.pdf", bbox_inches="tight")
 plt.show()
