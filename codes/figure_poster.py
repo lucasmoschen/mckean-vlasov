@@ -32,7 +32,7 @@ def mu_0_mixed(x, a1=4.0, b1=2.0, a2=2.0, b2=10.0):
 cmap_uncontrolled = LinearSegmentedColormap.from_list("grey_red", ["grey", "red"])
 cmap_controlled   = LinearSegmentedColormap.from_list("grey_blue", ["grey", "blue"])
 
-G = lambda x: np.zeros_like(x)
+V = lambda x: np.zeros_like(x)
 W2 = lambda x: -5*np.cos(x)
 
 alpha1 = lambda x: np.sin(x)
@@ -45,7 +45,7 @@ nabla_alpha2 = lambda x: -np.sin(x)
 nabla_alpha3 = lambda x: 2 * np.cos(2*x)
 nabla_alpha4 = lambda x: -2 * np.sin(2*x)
 
-solver2 = McKeanVlasovSolver(L=50, d=2*np.pi, G=G, alpha=[alpha1, alpha2, alpha3, alpha4], 
+solver2 = McKeanVlasovSolver(L=50, d=2*np.pi, V=V, alpha=[alpha1, alpha2, alpha3, alpha4], 
                             W=W2, mu_0=mu_0_mixed, min_fourier_samples=2000, delta=-0.0001, 
                             grad_alpha=[nabla_alpha1, nabla_alpha2, nabla_alpha3, nabla_alpha4], 
                             state_weight=1000, sigma=0.5)
