@@ -21,11 +21,10 @@ Adapted from the arXiv abstract: we develop a feedback control framework for McK
 - `codes/fourier_utils.py`: Fourier helper routines.
 - `codes/paper_figures.ipynb`: main notebook used for the paper figures.
 - `codes/generate_figures.py`: command-line entry point for the figure set.
-- `codes/kuramoto_example_changing_K.py`: standalone script for the `K=3` controls/cost figure, now exposed through `codes/generate_figures.py`.
 
 ## Figures
 
-The main plotting notebook is `codes/paper_figures.ipynb`. For command-line runs, use `codes/generate_figures.py`.
+The main plotting notebook is `codes/paper_figures.ipynb`. For command-line runs, use `codes/generate_figures.py`, which includes the notebook-backed figures and the additional `K=3` controls/cost figure.
 
 List the available figure identifiers:
 

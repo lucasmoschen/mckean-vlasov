@@ -393,15 +393,21 @@ class McKeanVlasovSolver:
         float
             The weighted L^2 norm ||y||_{bar_mu^{-1}}.
         """
+        a = np.asarray(a)
+        vector_input = a.ndim == 1
+        if vector_input:
+            a = a[:, None]
+
         x = np.linspace(0, self.d, num_points, endpoint=False)
-        
-        phi = np.exp(1j * np.outer(self.k_vals, x)) / np.sqrt(self.d)
+
+        phi = np.exp(2j * np.pi * np.outer(self.k_vals, x) / self.d) / np.sqrt(self.d)
         y_vals = (a.conj().T @ phi)
         mu_bar_vals = np.dot(self.bar_mu_k, phi).real
-        integrand = (np.abs(y_vals)**2) / mu_bar_vals[None, :]
-        
+        integrand = (np.abs(y_vals) ** 2) / mu_bar_vals[None, :]
+
         norm_squared = np.trapezoid(integrand, x, axis=1)
-        return np.sqrt(norm_squared)
+        norms = np.sqrt(norm_squared)
+        return float(norms[0]) if vector_input else norms
 
 class McKeanVlasovSolver2D:
     """
