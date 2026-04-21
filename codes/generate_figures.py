@@ -108,10 +108,10 @@ FIGURE_PLANS = (
         steps=tuple(CellStep(index) for index in (0, 2, 25)),
     ),
     FigurePlan(
-        name="kuramoto_2d_example",
-        description="Two-dimensional Kuramoto example.",
-        outputs=("images/kuramoto_2d_example.pdf",),
-        steps=tuple(CellStep(index) for index in (0, 26, 27)),
+        name="von_mises_2d_example",
+        description="Genuine 2D attractive von Mises-type example.",
+        outputs=("images/von_mises_2d_example.pdf",),
+        steps=(),
     ),
     FigurePlan(
         name="kuramoto_example_k3_controls_cumulative_cost_logscale",
@@ -128,6 +128,7 @@ PLAN_ALIASES = {
     for output_path in plan.outputs
 }
 PLAN_ALIASES.update({plan.name: plan.name for plan in FIGURE_PLANS})
+PLAN_ALIASES["kuramoto_2d_example"] = "von_mises_2d_example"
 
 
 def load_notebook_cells(path: Path) -> list[dict]:
@@ -190,6 +191,129 @@ def run_figure(plan: FigurePlan, notebook_cells: list[dict]) -> None:
     plt = namespace.get("plt")
     if plt is not None:
         plt.close("all")
+
+
+def run_von_mises_2d_example() -> None:
+    try:
+        import scienceplots  # noqa: F401
+
+        plt.style.use("science")
+    except ModuleNotFoundError:
+        pass
+
+    from scipy.linalg import eigvals
+    from main import FourierGalerkinRiccati2D
+
+    L = 8
+    theta = 1.5
+    rho = 0.75
+    sigma = 0.5
+    delta = 1.0
+    state_weight = 1e5
+    grid_size = 64
+    t_eval = np.linspace(0.0, 5.0, 250)
+    initial_kwargs = dict(kappa=0.5, rho0=0.1, x0=np.pi / 2.0, y0=np.pi)
+
+    selected_solver = None
+    selected_growth_rate = None
+    selected_K = None
+    for K in np.arange(5.0, 80.5, 0.5):
+        solver = FourierGalerkinRiccati2D(
+            L=L,
+            W=FourierGalerkinRiccati2D.von_mises_kernel(float(K), theta, rho),
+            sigma=sigma,
+            delta=delta,
+            state_weight=state_weight,
+            grid_size=grid_size,
+        )
+        growth_rate = np.max(np.real(eigvals(solver.A_open)))
+        if growth_rate > 1e-8 and not solver.hautus_failures:
+            selected_solver = solver
+            selected_growth_rate = growth_rate
+            selected_K = float(K)
+            break
+
+    if selected_solver is None:
+        raise RuntimeError("Could not find an unstable controllable 2D truncation for K <= 80.")
+
+    selected_solver.solve_riccati()
+    initial_coeffs, initial_density = selected_solver.von_mises_initial_coefficients(**initial_kwargs)
+    controlled_solution = selected_solver.solve(initial_coeffs, controlled=True, t_eval=t_eval)
+    uncontrolled_solution = selected_solver.solve(initial_coeffs, controlled=False, t_eval=t_eval)
+
+    if not controlled_solution.success:
+        raise RuntimeError(f"Controlled 2D solve failed: {controlled_solution.message}")
+    if not uncontrolled_solution.success:
+        raise RuntimeError(f"Uncontrolled 2D solve failed: {uncontrolled_solution.message}")
+
+    controlled_norm = selected_solver.weighted_norm(controlled_solution.y)
+    uncontrolled_norm = selected_solver.weighted_norm(uncontrolled_solution.y)
+    controlled_final = selected_solver.density_from_state(controlled_solution.y[:, -1])
+    uncontrolled_final = selected_solver.density_from_state(uncontrolled_solution.y[:, -1])
+
+    density_min = min(initial_density.min(), controlled_final.min(), uncontrolled_final.min())
+    density_max = max(initial_density.max(), controlled_final.max(), uncontrolled_final.max())
+
+    print(
+        "2D von Mises parameters: "
+        f"L={selected_solver.L}, K={selected_K:g}, theta={theta:g}, rho={rho:g}, "
+        f"delta={delta:g}, nu={state_weight:g}, N={selected_solver.N}, grid={grid_size}x{grid_size}"
+    )
+    print(f"2D maximum uncontrolled linear growth rate: {selected_growth_rate:.4e}")
+    print("2D Hautus check: passed")
+    print(
+        "2D weighted norms: "
+        f"controlled {controlled_norm[0]:.4e} -> {controlled_norm[-1]:.4e}; "
+        f"uncontrolled {uncontrolled_norm[0]:.4e} -> {uncontrolled_norm[-1]:.4e}"
+    )
+    print(
+        "2D density ranges: "
+        f"initial [{initial_density.min():.4e}, {initial_density.max():.4e}], "
+        f"controlled final [{controlled_final.min():.4e}, {controlled_final.max():.4e}], "
+        f"uncontrolled final [{uncontrolled_final.min():.4e}, {uncontrolled_final.max():.4e}]"
+    )
+
+    fig, axes = plt.subplots(2, 2, figsize=(14.5, 8.0), constrained_layout=True)
+
+    def show_density(axis, density, title):
+        image = axis.imshow(
+            density.T,
+            origin="lower",
+            extent=(0.0, 2.0 * np.pi, 0.0, 2.0 * np.pi),
+            aspect="auto",
+            vmin=density_min,
+            vmax=density_max,
+            cmap="viridis",
+        )
+        axis.set_title(title, fontsize=22)
+        axis.set_xlabel(r"$x$", fontsize=18)
+        axis.set_ylabel(r"$y$", fontsize=18)
+        axis.set_xticks([0, np.pi, 2 * np.pi])
+        axis.set_yticks([0, np.pi, 2 * np.pi])
+        axis.set_xticklabels([r"$0$", r"$\pi$", r"$2\pi$"])
+        axis.set_yticklabels([r"$0$", r"$\pi$", r"$2\pi$"])
+        axis.grid(alpha=0.2, linestyle="--")
+        fig.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
+
+    show_density(axes[0, 0], initial_density, r"Initial density $\mu_0(x,y)$")
+    show_density(axes[0, 1], uncontrolled_final, r"Uncontrolled density at $t=5$")
+    show_density(axes[1, 0], controlled_final, r"Controlled density at $t=5$")
+
+    norm_axis = axes[1, 1]
+    norm_axis.semilogy(t_eval, controlled_norm, color="#0072B2", linewidth=3, label="Controlled")
+    norm_axis.semilogy(t_eval, uncontrolled_norm, color="#D55E00", linestyle="--", linewidth=3, label="Uncontrolled")
+    norm_axis.set_title(r"Norm $\|y(t)\|_{\bar\mu^{-1}}$ over time", fontsize=22)
+    norm_axis.set_xlabel(r"Time $t$", fontsize=18)
+    norm_axis.set_ylabel(r"$\|y(t)\|_{\bar\mu^{-1}}$", fontsize=18)
+    norm_axis.grid(alpha=0.35, linestyle="--")
+    norm_axis.legend(frameon=True, fontsize=16)
+
+    output_dir = REPO_ROOT / "images"
+    output_dir.mkdir(exist_ok=True)
+    output_path = output_dir / "von_mises_2d_example.pdf"
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved figure to {output_path}")
 
 
 def run_kuramoto_example_k3_controls_cumulative_cost_logscale() -> None:
@@ -348,7 +472,7 @@ def run_kuramoto_example_k3_controls_cumulative_cost_logscale() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate figures from codes/paper_figures.ipynb without editing the notebook."
+        description="Generate figures from the plotting notebook without editing it."
     )
     parser.add_argument(
         "--figure",
@@ -415,7 +539,9 @@ def main() -> int:
         plan = PLAN_BY_NAME[name]
         print(f"Generating {plan.name}...")
         try:
-            if plan.name == "kuramoto_example_k3_controls_cumulative_cost_logscale":
+            if plan.name == "von_mises_2d_example":
+                run_von_mises_2d_example()
+            elif plan.name == "kuramoto_example_k3_controls_cumulative_cost_logscale":
                 run_kuramoto_example_k3_controls_cumulative_cost_logscale()
             else:
                 run_figure(plan, notebook_cells)

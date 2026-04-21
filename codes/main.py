@@ -409,6 +409,282 @@ class McKeanVlasovSolver:
         norms = np.sqrt(norm_squared)
         return float(norms[0]) if vector_input else norms
 
+class FourierGalerkinRiccati2D:
+    """
+    Genuine 2D Fourier-Galerkin/Riccati solver on [0, 2*pi)^2.
+
+    The state consists of one vector of all nonzero Fourier modes.  The class is
+    written for a prescribed target density, with the uniform target as the
+    default used by the figure generator.
+    """
+    def __init__(
+        self,
+        *,
+        L,
+        W,
+        V=None,
+        control_shapes=None,
+        sigma=0.5,
+        delta=1.0,
+        state_weight=1e5,
+        grid_size=64,
+        bar_mu_coeffs=None,
+    ):
+        self.L = int(L)
+        self.W = W
+        self.V = V if V is not None else (lambda X, Y: np.zeros_like(X))
+        self.sigma = sigma
+        self.delta = delta
+        self.state_weight = state_weight
+        self.grid_size = int(grid_size)
+        self.domain = 2.0 * np.pi
+        self.uniform_density = 1.0 / self.domain**2
+        self.uniform_zero_coeff = 1.0 / self.domain
+
+        modes = [
+            (kx, ky)
+            for kx in range(-self.L, self.L + 1)
+            for ky in range(-self.L, self.L + 1)
+            if not (kx == 0 and ky == 0)
+        ]
+        self.modes = np.array(modes, dtype=int)
+        self.kx = self.modes[:, 0]
+        self.ky = self.modes[:, 1]
+        self.mode_to_index = {tuple(mode): idx for idx, mode in enumerate(modes)}
+        self.N = len(modes)
+
+        grid = np.arange(self.grid_size) * self.domain / self.grid_size
+        self.x_grid = grid
+        self.y_grid = grid
+        self.X, self.Y = np.meshgrid(grid, grid, indexing="ij")
+        phase = self.kx[:, None, None] * self.X[None, :, :] + self.ky[:, None, None] * self.Y[None, :, :]
+        self.basis = np.exp(1j * phase) / self.domain
+
+        self.W_grid = self.W(self.X, self.Y)
+        self.W_coeff_lookup = self._project_modes(self.W_grid, max_mode=2 * self.L)
+        self.W_coeffs = np.array([self.W_coeff_lookup[(kx, ky)] for kx, ky in self.modes])
+        self.V_coeff_lookup = self._project_modes(self.V(self.X, self.Y), max_mode=2 * self.L)
+
+        if bar_mu_coeffs is None:
+            self.bar_mu_coeff_lookup = {(0, 0): self.uniform_zero_coeff}
+        else:
+            self.bar_mu_coeff_lookup = dict(bar_mu_coeffs)
+        self.bar_mu_coeffs = np.array(
+            [self.bar_mu_coeff_lookup.get((kx, ky), 0.0) for kx, ky in self.modes],
+            dtype=np.complex128,
+        )
+        self.bar_mu_grid = self._reconstruct_full(self.bar_mu_coeff_lookup)
+        self.is_uniform_target = (
+            len([key for key, value in self.bar_mu_coeff_lookup.items() if abs(value) > 1e-14]) == 1
+            and abs(self.bar_mu_coeff_lookup.get((0, 0), 0.0) - self.uniform_zero_coeff) < 1e-14
+        )
+
+        self.control_shapes = control_shapes if control_shapes is not None else self.default_control_shapes()
+        self.D = np.diag(self.kx**2 + self.ky**2).astype(np.complex128)
+        self.L_V = self._build_potential_matrix(self.V_coeff_lookup)
+        self.L_W = self._build_interaction_matrix()
+        self.N_mats, self.B = self._build_control_matrices()
+        self.M = state_weight * np.eye(self.N)
+
+        self.A_open = -(self.L_V + self.sigma * self.D + self.L_W)
+        self.A_riccati = -(self.L_V + self.sigma * self.D + self.L_W - self.delta * np.eye(self.N))
+        self.hautus_failures = self._hautus_failures()
+        self.Pi = None
+
+    @staticmethod
+    def von_mises_kernel(K, theta, rho):
+        def kernel(Z1, Z2):
+            exponent = theta * (np.cos(Z1) + np.cos(Z2)) + rho * np.sin(Z1) * np.sin(Z2)
+            z_norm = float(np.mean(np.exp(exponent)) * (2.0 * np.pi) ** 2)
+            return -(K / z_norm) * np.exp(exponent)
+
+        return kernel
+
+    @staticmethod
+    def default_control_shapes():
+        def alpha_coefficients(kind, mode):
+            if kind == "cos":
+                return {mode: np.pi, (-mode[0], -mode[1]): np.pi}
+            if kind == "sin":
+                return {mode: -1j * np.pi, (-mode[0], -mode[1]): 1j * np.pi}
+            raise ValueError(f"Unknown control type: {kind}")
+
+        return [
+            alpha_coefficients("cos", (1, 0)),
+            alpha_coefficients("sin", (1, 0)),
+            alpha_coefficients("cos", (0, 1)),
+            alpha_coefficients("sin", (0, 1)),
+            alpha_coefficients("cos", (1, 1)),
+            alpha_coefficients("sin", (1, 1)),
+            alpha_coefficients("cos", (1, -1)),
+            alpha_coefficients("sin", (1, -1)),
+        ]
+
+    def solve_riccati(self):
+        self.Pi = solve_continuous_are(self.A_riccati, self.B, self.M, np.eye(self.B.shape[1]))
+        return self.Pi
+
+    def _integrate_grid(self, values):
+        return float(np.mean(values) * self.domain**2)
+
+    def _project_modes(self, values, max_mode):
+        fft_coeffs = np.fft.fft2(values) / values.size
+        coeffs = {}
+        for kx in range(-max_mode, max_mode + 1):
+            for ky in range(-max_mode, max_mode + 1):
+                coeffs[(kx, ky)] = self.domain * fft_coeffs[kx % self.grid_size, ky % self.grid_size]
+        return coeffs
+
+    def _project_grid(self, values):
+        fft_coeffs = np.fft.fft2(values) / values.size
+        coeffs = np.empty(self.N, dtype=np.complex128)
+        for idx, (kx, ky) in enumerate(self.modes):
+            coeffs[idx] = self.domain * fft_coeffs[kx % self.grid_size, ky % self.grid_size]
+        return coeffs
+
+    def _reconstruct(self, coeffs):
+        return np.tensordot(coeffs, self.basis, axes=(0, 0))
+
+    def _reconstruct_full(self, coeff_lookup):
+        values = np.zeros_like(self.X, dtype=np.complex128)
+        for (kx, ky), coeff in coeff_lookup.items():
+            values += coeff * np.exp(1j * (kx * self.X + ky * self.Y)) / self.domain
+        return np.real(values)
+
+    def _build_potential_matrix(self, coeff_lookup):
+        matrix = np.zeros((self.N, self.N), dtype=np.complex128)
+        for p_idx, (px, py) in enumerate(self.modes):
+            for q_idx, (qx, qy) in enumerate(self.modes):
+                rx = px - qx
+                ry = py - qy
+                coeff = coeff_lookup.get((rx, ry), 0.0)
+                if coeff != 0:
+                    matrix[p_idx, q_idx] = (px * rx + py * ry) * coeff / self.domain
+        return matrix
+
+    def _build_interaction_matrix(self):
+        matrix = np.zeros((self.N, self.N), dtype=np.complex128)
+        for p_idx, (px, py) in enumerate(self.modes):
+            for q_idx, (qx, qy) in enumerate(self.modes):
+                rx = px - qx
+                ry = py - qy
+                mu_r = self.bar_mu_coeff_lookup.get((rx, ry), 0.0)
+                if mu_r == 0:
+                    continue
+                w_r = self.W_coeff_lookup.get((rx, ry), 0.0)
+                w_q = self.W_coeff_lookup.get((qx, qy), 0.0)
+                first = (px * rx + py * ry) * w_r
+                second = (px * qx + py * qy) * w_q
+                matrix[p_idx, q_idx] = mu_r * (first + second)
+        return matrix
+
+    def _build_control_matrices(self):
+        n_mats = np.zeros((len(self.control_shapes), self.N, self.N), dtype=np.complex128)
+        b_mat = np.zeros((self.N, len(self.control_shapes)), dtype=np.complex128)
+
+        for control_idx, alpha_coeffs in enumerate(self.control_shapes):
+            for p_idx, (px, py) in enumerate(self.modes):
+                for mode, alpha_mode in alpha_coeffs.items():
+                    sx, sy = mode
+                    rx = px - sx
+                    ry = py - sy
+                    mu_r = self.bar_mu_coeff_lookup.get((rx, ry), 0.0)
+                    if mu_r != 0:
+                        b_mat[p_idx, control_idx] -= (px * sx + py * sy) * mu_r * alpha_mode / self.domain
+
+                for q_idx, (qx, qy) in enumerate(self.modes):
+                    rx = px - qx
+                    ry = py - qy
+                    alpha_r = alpha_coeffs.get((rx, ry))
+                    if alpha_r is not None:
+                        n_mats[control_idx, p_idx, q_idx] = (px * rx + py * ry) * alpha_r / self.domain
+
+        return n_mats, b_mat
+
+    def _hautus_failures(self, tol=1e-8):
+        failures = []
+        eigenvalues = np.linalg.eigvals(self.A_riccati)
+        unstable = [ev for ev in eigenvalues if np.real(ev) >= -1e-10]
+        for eigenvalue in unstable:
+            matrix = np.hstack([eigenvalue * np.eye(self.N) - self.A_riccati, self.B])
+            rank = np.linalg.matrix_rank(matrix, tol=tol)
+            if rank < self.N:
+                failures.append(eigenvalue)
+        return failures
+
+    def initial_coefficients(self, density):
+        mu_coeffs = self._project_grid(density(self.X, self.Y))
+        return mu_coeffs - self.bar_mu_coeffs
+
+    def von_mises_initial_density(self, *, kappa, rho0, x0, y0):
+        exponent = kappa * (np.cos(self.X - x0) + np.cos(self.Y - y0))
+        exponent += rho0 * np.sin(self.X - x0) * np.sin(self.Y - y0)
+        unnormalized = np.exp(exponent)
+        return unnormalized / self._integrate_grid(unnormalized)
+
+    def von_mises_initial_coefficients(self, *, kappa, rho0, x0, y0):
+        density = self.von_mises_initial_density(kappa=kappa, rho0=rho0, x0=x0, y0=y0)
+        coeffs = self._project_grid(density) - self.bar_mu_coeffs
+        return coeffs, density
+
+    def _convolution_grad_w(self, coeffs):
+        grad_x_coeffs = self.domain * (1j * self.kx * self.W_coeffs) * coeffs
+        grad_y_coeffs = self.domain * (1j * self.ky * self.W_coeffs) * coeffs
+        return self._reconstruct(grad_x_coeffs), self._reconstruct(grad_y_coeffs)
+
+    def nonlinear_term(self, coeffs):
+        y_values = self._reconstruct(coeffs)
+        conv_x, conv_y = self._convolution_grad_w(coeffs)
+        flux_x_coeffs = self._project_grid(y_values * conv_x)
+        flux_y_coeffs = self._project_grid(y_values * conv_y)
+        return 1j * (self.kx * flux_x_coeffs + self.ky * flux_y_coeffs)
+
+    def feedback(self, coeffs):
+        if self.Pi is None:
+            raise RuntimeError("Call solve_riccati before using feedback.")
+        return -np.real(self.B.conj().T @ (self.Pi @ coeffs))
+
+    def rhs(self, _time, coeffs, controlled):
+        if controlled:
+            control = self.feedback(coeffs)
+            control_matrix = np.tensordot(control, self.N_mats, axes=(0, 0))
+            control_term = self.B @ control
+        else:
+            control_matrix = 0.0
+            control_term = 0.0
+        linear_term = -(self.L_V + self.sigma * self.D + self.L_W + control_matrix) @ coeffs
+        return linear_term + control_term + self.nonlinear_term(coeffs)
+
+    def solve(self, initial, *, controlled, t_eval, atol=1e-8, rtol=1e-8):
+        return solve_ivp(
+            lambda time, state: self.rhs(time, state, controlled),
+            (float(t_eval[0]), float(t_eval[-1])),
+            initial,
+            t_eval=t_eval,
+            method="RK45",
+            atol=atol,
+            rtol=rtol,
+        )
+
+    def weighted_norm(self, coeff_trajectory):
+        coeff_trajectory = np.asarray(coeff_trajectory)
+        if self.is_uniform_target:
+            return self.domain * np.sqrt(np.sum(np.abs(coeff_trajectory) ** 2, axis=0))
+
+        vector_input = coeff_trajectory.ndim == 1
+        if vector_input:
+            coeff_trajectory = coeff_trajectory[:, None]
+        norms = []
+        for idx in range(coeff_trajectory.shape[1]):
+            y_values = self._reconstruct(coeff_trajectory[:, idx])
+            integrand = np.abs(y_values) ** 2 / self.bar_mu_grid
+            norms.append(np.sqrt(self._integrate_grid(integrand)))
+        norms = np.asarray(norms)
+        return float(norms[0]) if vector_input else norms
+
+    def density_from_state(self, coeffs):
+        return np.real(self.bar_mu_grid + self._reconstruct(coeffs))
+
 class McKeanVlasovSolver2D:
     """
     2D lift of the 1D McKean-Vlasov solver, keeping the same public API and style.

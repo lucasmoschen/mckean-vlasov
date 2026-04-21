@@ -9,11 +9,6 @@ from main import McKeanVlasovSolver
 
 plt.style.use('science')
 
-#poster_font_path = "/Users/lmm122/Documents/codes/Fonts/ImperialSansText-Regular.ttf"
-#fm.fontManager.addfont(poster_font_path)
-#font_prop = fm.FontProperties(fname=poster_font_path)
-#plt.rcParams["font.family"] = font_prop.get_name()
-
 # Define the x-axis for the reconstruction (uniform in [0, 2pi])
 x = np.linspace(0, 2*np.pi, 500)
 
