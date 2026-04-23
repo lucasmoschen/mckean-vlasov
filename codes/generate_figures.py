@@ -212,32 +212,41 @@ def run_von_mises_2d_example() -> None:
     state_weight = 1e5
     grid_size = 64
     t_eval = np.linspace(0.0, 5.0, 250)
-    initial_kwargs = dict(kappa=0.5, rho0=0.1, x0=np.pi / 2.0, y0=np.pi)
+    initial_peak_kappa = 0.85
+    initial_peak_rho = 0.12
+    initial_peak_weight = 0.64
 
-    selected_solver = None
-    selected_growth_rate = None
-    selected_K = None
-    for K in np.arange(5.0, 80.5, 0.5):
-        solver = FourierGalerkinRiccati2D(
-            L=L,
-            W=FourierGalerkinRiccati2D.von_mises_kernel(float(K), theta, rho),
-            sigma=sigma,
-            delta=delta,
-            state_weight=state_weight,
-            grid_size=grid_size,
-        )
-        growth_rate = np.max(np.real(eigvals(solver.A_open)))
-        if growth_rate > 1e-8 and not solver.hautus_failures:
-            selected_solver = solver
-            selected_growth_rate = growth_rate
-            selected_K = float(K)
-            break
-
-    if selected_solver is None:
-        raise RuntimeError("Could not find an unstable controllable 2D truncation for K <= 80.")
+    selected_K = 30.0
+    selected_solver = FourierGalerkinRiccati2D(
+        L=L,
+        W=FourierGalerkinRiccati2D.von_mises_kernel(selected_K, theta, rho),
+        sigma=sigma,
+        delta=delta,
+        state_weight=state_weight,
+        grid_size=grid_size,
+    )
+    selected_growth_rate = np.max(np.real(eigvals(selected_solver.A_open)))
+    if selected_growth_rate <= 1e-8:
+        raise RuntimeError(f"K={selected_K:g} is not unstable for the selected 2D truncation.")
+    if selected_solver.hautus_failures:
+        raise RuntimeError(f"Hautus check failed for K={selected_K:g}: {selected_solver.hautus_failures}")
 
     selected_solver.solve_riccati()
-    initial_coeffs, initial_density = selected_solver.von_mises_initial_coefficients(**initial_kwargs)
+
+    def two_peak_density(X, Y):
+        peak_1 = np.exp(
+            initial_peak_kappa * (np.cos(X - 0.55 * np.pi) + np.cos(Y - 0.85 * np.pi))
+            + initial_peak_rho * np.sin(X - 0.55 * np.pi) * np.sin(Y - 0.85 * np.pi)
+        )
+        peak_2 = np.exp(
+            initial_peak_kappa * (np.cos(X - 1.45 * np.pi) + np.cos(Y - 1.20 * np.pi))
+            - initial_peak_rho * np.sin(X - 1.45 * np.pi) * np.sin(Y - 1.20 * np.pi)
+        )
+        density = initial_peak_weight * peak_1 + (1.0 - initial_peak_weight) * peak_2
+        return density / (np.mean(density) * (2.0 * np.pi) ** 2)
+
+    initial_density = two_peak_density(selected_solver.X, selected_solver.Y)
+    initial_coeffs = selected_solver.initial_coefficients(two_peak_density)
     controlled_solution = selected_solver.solve(initial_coeffs, controlled=True, t_eval=t_eval)
     uncontrolled_solution = selected_solver.solve(initial_coeffs, controlled=False, t_eval=t_eval)
 
@@ -272,46 +281,85 @@ def run_von_mises_2d_example() -> None:
         f"controlled final [{controlled_final.min():.4e}, {controlled_final.max():.4e}], "
         f"uncontrolled final [{uncontrolled_final.min():.4e}, {uncontrolled_final.max():.4e}]"
     )
+    print(
+        "2D initial density: "
+        f"two peaks with kappa={initial_peak_kappa:g}, rho0={initial_peak_rho:g}, "
+        f"weights=({initial_peak_weight:g}, {1.0 - initial_peak_weight:g})"
+    )
 
-    fig, axes = plt.subplots(2, 2, figsize=(14.5, 8.0), constrained_layout=True)
+    fig = plt.figure(figsize=(15.5, 9.0))
+    grid_spec = fig.add_gridspec(
+        2,
+        2,
+        left=0.04,
+        right=0.88,
+        bottom=0.08,
+        top=0.88,
+        wspace=0.15,
+        hspace=0.25,
+    )
+    density_axes = [
+        fig.add_subplot(grid_spec[0, 0], projection="3d"),
+        fig.add_subplot(grid_spec[0, 1], projection="3d"),
+        fig.add_subplot(grid_spec[1, 0], projection="3d"),
+    ]
+    norm_axis = fig.add_subplot(grid_spec[1, 1])
+    surface_slice = slice(None, None, 2)
 
-    def show_density(axis, density, title):
-        image = axis.imshow(
-            density.T,
-            origin="lower",
-            extent=(0.0, 2.0 * np.pi, 0.0, 2.0 * np.pi),
-            aspect="auto",
+    initial_z_limits = (initial_density.min(), initial_density.max())
+    uncontrolled_z_limits = (uncontrolled_final.min(), uncontrolled_final.max())
+    controlled_z_limits = initial_z_limits
+
+    def show_density(axis, density, title, z_limits):
+        surface = axis.plot_surface(
+            selected_solver.X[surface_slice, surface_slice],
+            selected_solver.Y[surface_slice, surface_slice],
+            density[surface_slice, surface_slice],
+            cmap="viridis",
             vmin=density_min,
             vmax=density_max,
-            cmap="viridis",
+            linewidth=0,
+            antialiased=True,
         )
-        axis.set_title(title, fontsize=22)
-        axis.set_xlabel(r"$x$", fontsize=18)
-        axis.set_ylabel(r"$y$", fontsize=18)
+        axis.set_title(title, fontsize=22, y=1.05, pad=3)
+        axis.set_xlabel(r"$x$", fontsize=18, labelpad=4)
+        axis.set_ylabel(r"$y$", fontsize=18, labelpad=4)
+        axis.set_zlabel(r"$\mu$", fontsize=18, labelpad=4)
+        axis.set_xlim(0.0, 2.0 * np.pi)
+        axis.set_ylim(0.0, 2.0 * np.pi)
+        axis.set_zlim(*z_limits)
         axis.set_xticks([0, np.pi, 2 * np.pi])
         axis.set_yticks([0, np.pi, 2 * np.pi])
         axis.set_xticklabels([r"$0$", r"$\pi$", r"$2\pi$"])
         axis.set_yticklabels([r"$0$", r"$\pi$", r"$2\pi$"])
-        axis.grid(alpha=0.2, linestyle="--")
-        fig.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
+        axis.tick_params(axis="both", which="major", labelsize=16, pad=1)
+        axis.tick_params(axis="z", which="major", labelsize=16, pad=1)
+        axis.view_init(elev=28, azim=-135)
+        axis.set_proj_type("ortho")
+        axis.set_box_aspect((1.0, 1.0, 0.42), zoom=1.26)
+        return surface
 
-    show_density(axes[0, 0], initial_density, r"Initial density $\mu_0(x,y)$")
-    show_density(axes[0, 1], uncontrolled_final, r"Uncontrolled density at $t=5$")
-    show_density(axes[1, 0], controlled_final, r"Controlled density at $t=5$")
+    surface = show_density(density_axes[0], initial_density, r"Initial density $\mu_0(x,y)$", initial_z_limits)
+    show_density(density_axes[1], uncontrolled_final, r"Uncontrolled density at $t=5$", uncontrolled_z_limits)
+    show_density(density_axes[2], controlled_final, r"Controlled density at $t=5$", controlled_z_limits)
+    colorbar_axis = fig.add_axes([0.91, 0.20, 0.018, 0.60])
+    colorbar = fig.colorbar(surface, cax=colorbar_axis, label=r"$\mu$")
+    colorbar.ax.tick_params(labelsize=16)
+    colorbar.set_label(r"$\mu$", fontsize=18)
 
-    norm_axis = axes[1, 1]
     norm_axis.semilogy(t_eval, controlled_norm, color="#0072B2", linewidth=3, label="Controlled")
     norm_axis.semilogy(t_eval, uncontrolled_norm, color="#D55E00", linestyle="--", linewidth=3, label="Uncontrolled")
     norm_axis.set_title(r"Norm $\|y(t)\|_{\bar\mu^{-1}}$ over time", fontsize=22)
     norm_axis.set_xlabel(r"Time $t$", fontsize=18)
     norm_axis.set_ylabel(r"$\|y(t)\|_{\bar\mu^{-1}}$", fontsize=18)
+    norm_axis.tick_params(axis="both", which="major", labelsize=16)
     norm_axis.grid(alpha=0.35, linestyle="--")
     norm_axis.legend(frameon=True, fontsize=16)
 
     output_dir = REPO_ROOT / "images"
     output_dir.mkdir(exist_ok=True)
     output_path = output_dir / "von_mises_2d_example.pdf"
-    fig.savefig(output_path, bbox_inches="tight")
+    fig.savefig(output_path)
     plt.close(fig)
     print(f"Saved figure to {output_path}")
 

@@ -494,7 +494,7 @@ class FourierGalerkinRiccati2D:
     @staticmethod
     def von_mises_kernel(K, theta, rho):
         def kernel(Z1, Z2):
-            exponent = theta * (np.cos(Z1) + np.cos(Z2)) + rho * np.sin(Z1) * np.sin(Z2)
+            exponent = theta * (np.cos(Z1) + np.cos(Z2)) + rho * np.cos(Z1) * np.cos(Z2)
             z_norm = float(np.mean(np.exp(exponent)) * (2.0 * np.pi) ** 2)
             return -(K / z_norm) * np.exp(exponent)
 
